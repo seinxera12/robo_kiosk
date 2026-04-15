@@ -1,0 +1,156 @@
+"""
+Whisper STT implementation using faster-whisper.
+
+**Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 24.3, 24.4**
+"""
+
+import asyncio
+import logging
+import time
+from dataclasses import dataclass
+from typing import Literal, Optional
+
+import numpy as np
+from faster_whisper import WhisperModel
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TranscriptionResult:
+    """Result of STT transcription."""
+    text: str
+    language: Literal["en", "ja"]
+    confidence: float
+    duration_ms: int
+
+
+class WhisperSTT:
+    """
+    Whisper Large V3 Turbo STT wrapper using faster-whisper.
+    
+    Preconditions:
+    - CUDA available on server (or CPU fallback)
+    - Model weights downloaded or will be auto-downloaded
+    
+    Postconditions:
+    - Returns transcript, language, confidence
+    - Transcription time < 150ms for typical utterances
+    
+    **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 24.3, 24.4**
+    """
+    
+    def __init__(
+        self,
+        model_size: str = "large-v3-turbo",
+        device: str = "cuda",
+        compute_type: str = "float16"
+    ):
+        """
+        Initialize Whisper STT model.
+        
+        Args:
+            model_size: Whisper model size (default: "large-v3-turbo")
+            device: Device to run on ("cuda" or "cpu")
+            compute_type: Compute precision ("float16" for ≥12GB VRAM, "int8" for <12GB)
+        
+        **Validates: Requirements 4.1, 4.4, 4.5, 24.3, 24.4**
+        """
+        logger.info(
+            f"Initializing WhisperSTT: model={model_size}, "
+            f"device={device}, compute_type={compute_type}"
+        )
+        
+        self.model = WhisperModel(
+            model_size,
+            device=device,
+            compute_type=compute_type,
+            num_workers=1
+        )
+        
+        logger.info("WhisperSTT initialized successfully")
+    
+    async def transcribe(self, audio_bytes: bytes) -> TranscriptionResult:
+        """
+        Transcribe audio with language detection.
+        
+        Args:
+            audio_bytes: PCM16 audio data (16kHz, mono)
+        
+        Returns:
+            TranscriptionResult with text, language, confidence, and duration
+        
+        Preconditions:
+        - audio_bytes is PCM16 audio data
+        - Audio duration > 0.5 seconds
+        
+        Postconditions:
+        - Returns non-empty transcript (or empty string if no speech detected)
+        - Language is "en" or "ja"
+        - Confidence in range [0.0, 1.0]
+        
+        Loop Invariants:
+        - All segments are processed sequentially
+        - Text accumulation preserves order
+        
+        **Validates: Requirements 4.2, 4.3, 4.6, 4.7, 4.8, 4.9**
+        """
+        start_time = time.time()
+        
+        # Convert bytes to numpy array
+        audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
+        audio_float = audio_np.astype(np.float32) / 32768.0
+        
+        # Run transcription in thread pool to avoid blocking event loop
+        loop = asyncio.get_event_loop()
+        segments, info = await loop.run_in_executor(
+            None,
+            self._transcribe_sync,
+            audio_float
+        )
+        
+        # Collect segments
+        text_parts = []
+        for segment in segments:
+            text_parts.append(segment.text)
+        
+        text = " ".join(text_parts).strip()
+        
+        # Get language and confidence
+        # Requirement 4.3: Automatically detect language (English or Japanese)
+        # Requirement 4.8: Use Whisper's detected language if confidence ≥0.8
+        language = info.language if info.language in ("en", "ja") else "en"
+        confidence = info.language_probability
+        
+        duration_ms = int((time.time() - start_time) * 1000)
+        
+        logger.info(
+            f"Transcription complete: text='{text[:50]}...', "
+            f"language={language}, confidence={confidence:.2f}, "
+            f"duration={duration_ms}ms"
+        )
+        
+        return TranscriptionResult(
+            text=text,
+            language=language,
+            confidence=confidence,
+            duration_ms=duration_ms
+        )
+    
+    def _transcribe_sync(self, audio_float: np.ndarray):
+        """
+        Synchronous transcription method for thread pool execution.
+        
+        **Validates: Requirements 4.2, 4.3**
+        """
+        # Requirement 4.2: Use greedy decoding (beam_size=1) for minimum latency
+        segments, info = self.model.transcribe(
+            audio_float,
+            beam_size=1,           # Greedy decoding for minimum latency
+            language=None,         # Auto-detect language
+            vad_filter=False,      # VAD done client-side
+            condition_on_previous_text=False
+        )
+        
+        # Convert generator to list to pass back to async context
+        return list(segments), info

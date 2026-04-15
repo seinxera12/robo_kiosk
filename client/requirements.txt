@@ -1,0 +1,21 @@
+# Client requirements for voice kiosk chatbot
+
+# UI framework
+PyQt6==6.6.0
+
+# Audio processing
+sounddevice==0.4.6
+numpy==1.24.3
+
+# VAD
+torch==2.1.0
+# Note: Silero VAD is loaded via torch.hub
+
+# WebSocket client
+websockets==12.0
+
+# Opus codec (optional, for audio encoding)
+# opuslib==3.0.1
+
+# Utilities
+python-dotenv==1.0.0

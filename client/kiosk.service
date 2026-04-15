@@ -1,0 +1,21 @@
+[Unit]
+Description=Voice Kiosk Chatbot Client
+After=graphical.target network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kiosk
+Group=kiosk
+WorkingDirectory=/home/kiosk/voice-kiosk-chatbot
+Environment="DISPLAY=:0"
+Environment="XDG_RUNTIME_DIR=/run/user/1000"
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/usr/bin/python3 client/main.py
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical.target

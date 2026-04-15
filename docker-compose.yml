@@ -1,0 +1,185 @@
+version: '3.8'
+
+services:
+  # Main voice server - handles STT, LLM orchestration, TTS, RAG
+  voice-server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: voice-server
+    ports:
+      - "8765:8765"  # WebSocket endpoint
+      - "8000:8000"  # HTTP health check endpoint
+    volumes:
+      - ./models:/models:ro  # Read-only model weights
+      - ./building_kb:/building_kb:ro  # Read-only knowledge base
+      - ./chroma_data:/chroma  # Persistent ChromaDB storage
+      - ./server:/app/server  # Development: mount source code
+    environment:
+      # vLLM configuration
+      - VLLM_BASE_URL=http://vllm:8001/v1
+      - VLLM_MODEL_NAME=Qwen/Qwen2.5-7B-Instruct-AWQ
+      
+      # Ollama configuration
+      - OLLAMA_BASE_URL=http://ollama:11434/v1
+      - OLLAMA_MODEL_NAME=qwen2.5:7b-instruct
+      
+      # Grok API configuration (optional fallback)
+      - GROK_API_KEY=${GROK_API_KEY:-}
+      
+      # STT configuration
+      - STT_MODEL=large-v3-turbo
+      - STT_COMPUTE_TYPE=float16
+      
+      # TTS configuration
+      - TTS_EN_ENGINE=cosyvoice
+      - TTS_JP_URL=http://voicevox:50021
+      
+      # RAG configuration
+      - CHROMADB_PATH=/chroma
+      - BUILDING_NAME=${BUILDING_NAME:-Office Building}
+      
+      # SearXNG configuration
+      - SEARXNG_URL=http://searxng:8080
+      
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      vllm:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+      voicevox:
+        condition: service_healthy
+      searxng:
+        condition: service_started
+    networks:
+      - voice-network
+    restart: unless-stopped
+
+  # vLLM - Primary LLM inference engine (GPU-accelerated)
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: vllm
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./models:/models:ro
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+    command:
+      - --model
+      - Qwen/Qwen2.5-7B-Instruct-AWQ
+      - --quantization
+      - awq
+      - --dtype
+      - float16
+      - --max-model-len
+      - "4096"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --port
+      - "8001"
+      - --host
+      - "0.0.0.0"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+      - voice-network
+    restart: unless-stopped
+
+  # Ollama - Secondary LLM inference engine (CPU/GPU fallback)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./models/ollama:/root/.ollama
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    networks:
+      - voice-network
+    restart: unless-stopped
+    # Note: Ollama can use GPU if available, but also works on CPU
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # VOICEVOX - Japanese TTS engine (REST API)
+  voicevox:
+    image: voicevox/voicevox_engine:cpu-ubuntu20.04-latest
+    container_name: voicevox
+    ports:
+      - "50021:50021"
+    environment:
+      - VV_CPU_NUM_THREADS=4
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:50021/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - voice-network
+    restart: unless-stopped
+
+  # SearXNG - Self-hosted web search service
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+      - SEARXNG_SECRET=${SEARXNG_SECRET:-changeme}
+    networks:
+      - voice-network
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
+
+networks:
+  voice-network:
+    driver: bridge
+
+volumes:
+  ollama_data:
+    driver: local
