@@ -48,7 +48,8 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install huggingface_hub==0.19.4
 
 # Copy application code
 COPY . /app/server

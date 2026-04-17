@@ -28,8 +28,8 @@ services:
       - GROK_API_KEY=${GROK_API_KEY:-}
       
       # STT configuration
-      - STT_MODEL=large-v3-turbo
-      - STT_COMPUTE_TYPE=float16
+      - STT_MODEL=large-v3
+      - STT_COMPUTE_TYPE=int8
       
       # TTS configuration
       - TTS_EN_ENGINE=cosyvoice
