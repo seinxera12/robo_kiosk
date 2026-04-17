@@ -58,8 +58,6 @@ services:
       retries: 3
       start_period: 60s
     depends_on:
-      vllm:
-        condition: service_healthy
       ollama:
         condition: service_started
       voicevox:
@@ -71,47 +69,47 @@ services:
     restart: unless-stopped
 
   # vLLM - Primary LLM inference engine (GPU-accelerated)
-  vllm:
-    image: vllm/vllm-openai:latest
-    container_name: vllm
-    ports:
-      - "8001:8001"
-    volumes:
-      - ./models:/models:ro
-      - ~/.cache/huggingface:/root/.cache/huggingface
-    environment:
-      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
-    command:
-      - --model
-      - Qwen/Qwen2.5-7B-Instruct-AWQ
-      - --quantization
-      - awq
-      - --dtype
-      - float16
-      - --max-model-len
-      - "4096"
-      - --gpu-memory-utilization
-      - "0.90"
-      - --port
-      - "8001"
-      - --host
-      - "0.0.0.0"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 120s
-    networks:
-      - voice-network
-    restart: unless-stopped
+  #vllm:
+  #  image: vllm/vllm-openai:latest
+  #  container_name: vllm
+  #  ports:
+  #    - "8001:8001"
+  #  volumes:
+  #    - ./models:/models:ro
+  #    - ~/.cache/huggingface:/root/.cache/huggingface
+  #  environment:
+  #    - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+  #  command:
+  #    - --model
+  #    - Qwen/Qwen2.5-7B-Instruct-AWQ
+  #    - --quantization
+  #    - awq
+  #    - --dtype
+  #    - float16
+  #    - --max-model-len
+  #    - "4096"
+  #    - --gpu-memory-utilization
+  #    - "0.90"
+  #    - --port
+  #    - "8001"
+  #    - --host
+  #    - "0.0.0.0"
+  #  deploy:
+  #    resources:
+  #      reservations:
+  #        devices:
+  #          - driver: nvidia
+  #            count: 1
+  #            capabilities: [gpu]
+  #  healthcheck:
+  #    test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+  #    interval: 30s
+  #    timeout: 10s
+  #    retries: 3
+  #    start_period: 120s
+  #  networks:
+  #    - voice-network
+  #  restart: unless-stopped
 
   # Ollama - Secondary LLM inference engine (CPU/GPU fallback)
   ollama:
