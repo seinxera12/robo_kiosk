@@ -11,37 +11,37 @@ services:
       - "8765:8765"  # WebSocket endpoint
       - "8000:8000"  # HTTP health check endpoint
     volumes:
-      - ./models:/models:ro  # Read-only model weights
-      - ./building_kb:/building_kb:ro  # Read-only knowledge base
-      - ./chroma_data:/chroma  # Persistent ChromaDB storage
-      - ./server:/app/server  # Development: mount source code
+      - ./models:/models:ro          # Read-only model weights
+      - ./building_kb:/building_kb:ro # Read-only knowledge base
+      - ./chroma_data:/chroma         # Persistent ChromaDB storage
+      - ./server:/app/server          # Development: mount source code
     environment:
-      # vLLM configuration
-      - VLLM_BASE_URL=http://vllm:8001/v1
-      - VLLM_MODEL_NAME=Qwen/Qwen2.5-7B-Instruct-AWQ
-      
-      # Ollama configuration
+      # vLLM disabled - not used on 6GB VRAM
+      - VLLM_BASE_URL=http://localhost:8001/v1
+      - VLLM_MODEL_NAME=disabled
+
+      # Ollama - primary LLM on GPU (3B fits in 6GB alongside Whisper int8)
       - OLLAMA_BASE_URL=http://ollama:11434/v1
-      - OLLAMA_MODEL_NAME=qwen2.5:7b-instruct
-      
-      # Grok API configuration (optional fallback)
+      - OLLAMA_MODEL_NAME=qwen2.5:3b-instruct
+
+      # Grok API (optional cloud fallback - leave empty to disable)
       - GROK_API_KEY=${GROK_API_KEY:-}
-      
-      # STT configuration
+
+      # STT - int8 keeps Whisper large-v3-turbo at ~1.5GB VRAM instead of 3GB
       - STT_MODEL=large-v3-turbo
-      - STT_COMPUTE_TYPE=float16
-      
-      # TTS configuration
+      - STT_COMPUTE_TYPE=int8
+
+      # TTS - VOICEVOX handles Japanese (CPU), CosyVoice placeholder for English
       - TTS_EN_ENGINE=cosyvoice
       - TTS_JP_URL=http://voicevox:50021
-      
-      # RAG configuration
+
+      # RAG
       - CHROMADB_PATH=/chroma
       - BUILDING_NAME=${BUILDING_NAME:-Office Building}
-      
-      # SearXNG configuration
+
+      # SearXNG - internal Docker network URL (port 8080 inside network)
       - SEARXNG_URL=http://searxng:8080
-      
+
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     deploy:
@@ -58,8 +58,6 @@ services:
       retries: 3
       start_period: 60s
     depends_on:
-      vllm:
-        condition: service_healthy
       ollama:
         condition: service_started
       voicevox:
@@ -70,64 +68,63 @@ services:
       - voice-network
     restart: unless-stopped
 
-  # vLLM - Primary LLM inference engine (GPU-accelerated)
-  vllm:
-    image: vllm/vllm-openai:latest
-    container_name: vllm
-    ports:
-      - "8001:8001"
-    volumes:
-      - ./models:/models:ro
-      - ~/.cache/huggingface:/root/.cache/huggingface
-    environment:
-      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
-    command:
-      - --model
-      - Qwen/Qwen2.5-7B-Instruct-AWQ
-      - --quantization
-      - awq
-      - --dtype
-      - float16
-      - --max-model-len
-      - "4096"
-      - --gpu-memory-utilization
-      - "0.90"
-      - --port
-      - "8001"
-      - --host
-      - "0.0.0.0"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 120s
-    networks:
-      - voice-network
-    restart: unless-stopped
+  # vLLM - DISABLED: requires 7GB+ VRAM, does not fit on RTX 4050 6GB
+  # Uncomment this entire block only if you have a 12GB+ VRAM GPU
+  # vllm:
+  #   image: vllm/vllm-openai:latest
+  #   container_name: vllm
+  #   ports:
+  #     - "8001:8001"
+  #   volumes:
+  #     - ./models:/models:ro
+  #     - ~/.cache/huggingface:/root/.cache/huggingface
+  #   environment:
+  #     - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+  #   command:
+  #     - --model
+  #     - Qwen/Qwen2.5-7B-Instruct-AWQ
+  #     - --quantization
+  #     - awq
+  #     - --dtype
+  #     - float16
+  #     - --max-model-len
+  #     - "4096"
+  #     - --gpu-memory-utilization
+  #     - "0.90"
+  #     - --port
+  #     - "8001"
+  #     - --host
+  #     - "0.0.0.0"
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 120s
+  #   networks:
+  #     - voice-network
+  #   restart: unless-stopped
 
-  # Ollama - Secondary LLM inference engine (CPU/GPU fallback)
+  # Ollama - PRIMARY LLM on GPU with qwen2.5:3b-instruct (~2.5GB VRAM)
+  # Combined with Whisper int8 (~1.5GB), total GPU usage ~4.3GB out of 6GB
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
     ports:
       - "11434:11434"
     volumes:
-      - ./models/ollama:/root/.ollama
       - ollama_data:/root/.ollama
     environment:
       - OLLAMA_HOST=0.0.0.0:11434
-    networks:
-      - voice-network
-    restart: unless-stopped
-    # Note: Ollama can use GPU if available, but also works on CPU
+      # Tell Ollama to use GPU
+      - OLLAMA_GPU_LAYERS=99
     deploy:
       resources:
         reservations:
@@ -135,10 +132,13 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+    networks:
+      - voice-network
+    restart: unless-stopped
 
-  # VOICEVOX - Japanese TTS engine (REST API)
+  # VOICEVOX - Japanese TTS (CPU only, no VRAM needed)
   voicevox:
-    image: voicevox/voicevox_engine:cpu-ubuntu20.04-latest
+    image: voicevox/voicevox_engine:latest
     container_name: voicevox
     ports:
       - "50021:50021"
@@ -154,16 +154,17 @@ services:
       - voice-network
     restart: unless-stopped
 
-  # SearXNG - Self-hosted web search service
+  # SearXNG - Self-hosted web search (CPU only, no VRAM needed)
+  # Note: host port 8081 to avoid conflicts, internal network still uses 8080
   searxng:
     image: searxng/searxng:latest
     container_name: searxng
     ports:
-      - "8080:8080"
+      - "8081:8080"
     volumes:
       - ./searxng:/etc/searxng:rw
     environment:
-      - SEARXNG_BASE_URL=http://localhost:8080/
+      - SEARXNG_BASE_URL=http://localhost:8081/
       - SEARXNG_SECRET=${SEARXNG_SECRET:-changeme}
     networks:
       - voice-network

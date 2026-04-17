@@ -27,6 +27,8 @@ class Config:
     # TTS Configuration
     tts_en_engine: str
     tts_jp_url: str
+    tts_cosyvoice_model: str = "iic/CosyVoice2-0.5B"
+    tts_cosyvoice_device: str = "cuda"
     
     # RAG Configuration
     chromadb_path: str
@@ -90,6 +92,8 @@ class Config:
             # TTS Configuration
             tts_en_engine=os.getenv("TTS_EN_ENGINE", "cosyvoice2"),
             tts_jp_url=os.getenv("TTS_JP_URL", "http://localhost:50021"),
+            tts_cosyvoice_model=os.getenv("COSYVOICE_MODEL_PATH", "iic/CosyVoice2-0.5B"),
+            tts_cosyvoice_device=os.getenv("COSYVOICE_DEVICE", "cuda"),
             
             # RAG Configuration
             chromadb_path=os.getenv("CHROMADB_PATH", "/chroma"),

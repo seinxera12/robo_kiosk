@@ -17,9 +17,9 @@ search:
     - json
 
 server:
-  port: 8080
+  port: 8080           # Internal container port — always 8080 inside Docker network
   bind_address: "0.0.0.0"
-  secret_key: "changeme"  # Override with SEARXNG_SECRET env var
+  secret_key: "changeme-replace-this"  # Must match SEARXNG_SECRET in .env
   limiter: false
   image_proxy: false
   method: "GET"
