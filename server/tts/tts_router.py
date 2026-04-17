@@ -58,11 +58,10 @@ class TTSRouter:
             # Return VOICEVOX for Japanese (with Fish Speech fallback)
             logger.debug("Routing to VOICEVOX for Japanese")
             # Check if VOICEVOX is available
-            if self.voicevox and asyncio.run(self.voicevox.health_check()):
-                return self.voicevox
+            if lang == "en":
+                return self.cosyvoice
             else:
-                logger.warning("VOICEVOX unavailable, falling back to Fish Speech")
-                return self.fish_speech
+                return self.voicevox   # VoicevoxTTS.synthesize_stream already handles errors
 
 
 async def stream_tts_with_sentence_boundaries(

@@ -31,11 +31,12 @@ class LLMFallbackChain:
         Args:
             config: Configuration object with backend settings
         """
-        self.backends = [
-            VLLMBackend(config),
-            OllamaBackend(config),
-            GrokBackend(config)
-        ]
+        backends = [VLLMBackend(config), OllamaBackend(config)]
+
+        if config.GROK_API_KEY:
+            backends.append(GrokBackend(config))
+        self.backends = backends
+        
         self._healthy_index = 0  # Cache last successful backend
         logger.info("Initialized LLM fallback chain with 3 backends")
     

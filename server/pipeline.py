@@ -10,8 +10,12 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Optional, Any
+import torch
+
+import logging
 
 logger = logging.getLogger(__name__)
+
 
 
 @dataclass
@@ -99,12 +103,14 @@ class VoicePipeline:
         """
         self.ws = websocket
         self.config = config
+        stt_device = config.stt_device
+        
         
         # Initialize STT component
         from server.stt.whisper_stt import WhisperSTT
         self.stt = WhisperSTT(
             model_size=config.stt_model,
-            device="cuda",
+            device=stt_device,       # from env
             compute_type=config.stt_compute_type
         )
         

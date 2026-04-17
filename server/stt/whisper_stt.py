@@ -42,9 +42,9 @@ class WhisperSTT:
     
     def __init__(
         self,
-        model_size: str = "large-v3-turbo",
+        model_size: str = "large-v3",
         device: str = "cuda",
-        compute_type: str = "float16"
+        compute_type: str = "int8"
     ):
         """
         Initialize Whisper STT model.

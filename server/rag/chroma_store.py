@@ -118,12 +118,24 @@ class BuildingKB:
         query_embedding = self.embedder.encode([query])
         
         # Query ChromaDB with language filter
-        results = self.collection.query(
-            query_embeddings=query_embedding.tolist(),
-            n_results=n,
-            where={"lang": lang}
-        )
-        
+        # results = self.collection.query(
+        #     query_embeddings=query_embedding.tolist(),
+        #     n_results=n,
+        #     where={"lang": lang}
+        # )
+        try:
+            count = self.collection.count()
+            if count == 0:
+                logger.warning("ChromaDB collection is empty — skipping RAG retrieval")
+                return ""
+            results = self.collection.query(
+                query_embeddings=query_embedding.tolist(),
+                n_results=min(n, count),   # don't request more than available
+                where={"lang": lang}
+            )
+        except Exception as e:
+            logger.warning(f"RAG retrieval failed: {e} — continuing without context")
+            return ""        
         # Concatenate results
         chunks = results["documents"][0] if results["documents"] else []
         context = "\n\n".join(chunks)

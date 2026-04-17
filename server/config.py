@@ -41,6 +41,8 @@ class Config:
     
     # Kiosk metadata (set per connection)
     kiosk_metadata: dict = None
+
+    stt_device :str = "cuda"
     
     def __post_init__(self):
         """Initialize mutable defaults."""
@@ -84,8 +86,9 @@ class Config:
             grok_api_key=os.getenv("GROK_API_KEY"),
             
             # STT Configuration
-            stt_model=os.getenv("STT_MODEL", "large-v3-turbo"),
+            stt_model=os.getenv("STT_MODEL", "large-v3"),
             stt_compute_type=os.getenv("STT_COMPUTE_TYPE", "float16"),
+            stt_device=os.getenv("STT_DEVICE", "cuda"),
             
             # TTS Configuration
             tts_en_engine=os.getenv("TTS_EN_ENGINE", "cosyvoice2"),
