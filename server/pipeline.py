@@ -93,42 +93,51 @@ class VoicePipeline:
         - 3.5: Receives JSON event messages downstream
     """
     
-    def __init__(self, websocket: Any, config: Any):
+    def __init__(self, websocket: Any, config: Any, stt=None, llm_chain=None, rag=None, tts_router=None):
         """
         Initialize the voice pipeline.
-        
+
         Args:
-            websocket: WebSocket connection object
-            config: Configuration object with all settings
+            websocket:  Active WebSocket connection
+            config:     Config object
+            stt:        Pre-loaded WhisperSTT instance
+            llm_chain:  Pre-loaded LLMFallbackChain instance
+            rag:        Pre-loaded BuildingKB instance
+            tts_router: Pre-loaded TTSRouter instance
         """
         self.ws = websocket
         self.config = config
-        stt_device = config.stt_device
-        
-        
-        # Initialize STT component
-        from server.stt.whisper_stt import WhisperSTT
-        self.stt = WhisperSTT(
-            model_size=config.stt_model,
-            device=stt_device,       # from env
-            compute_type=config.stt_compute_type
-        )
-        
-        # Initialize LLM fallback chain
-        from server.llm.fallback_chain import LLMFallbackChain
-        self.llm_chain = LLMFallbackChain(config)
-        
-        # Initialize RAG knowledge base
-        from server.rag.chroma_store import BuildingKB
-        self.rag = BuildingKB(config.chromadb_path)
-        
-        # Initialize TTS router
-        from server.tts.tts_router import TTSRouter
-        self.tts_router = TTSRouter(config)
-        
-        # Pipeline state
+
+        # Use pre-loaded components (fast path) or construct them (slow path)
+        if stt is not None:
+            self.stt = stt
+        else:
+            from server.stt.whisper_stt import WhisperSTT
+            self.stt = WhisperSTT(
+                model_size=config.stt_model,
+                device=config.stt_device,
+                compute_type=config.stt_compute_type
+            )
+
+        if llm_chain is not None:
+            self.llm_chain = llm_chain
+        else:
+            from server.llm.fallback_chain import LLMFallbackChain
+            self.llm_chain = LLMFallbackChain(config)
+
+        if rag is not None:
+            self.rag = rag
+        else:
+            from server.rag.chroma_store import BuildingKB
+            self.rag = BuildingKB(config.chromadb_path)
+
+        if tts_router is not None:
+            self.tts_router = tts_router
+        else:
+            from server.tts.tts_router import TTSRouter
+            self.tts_router = TTSRouter(config)
+
         self.state = PipelineState()
-        
         logger.info("VoicePipeline initialized")
     
     async def run(self) -> None:

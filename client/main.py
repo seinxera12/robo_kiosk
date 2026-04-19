@@ -1,149 +1,240 @@
 """
 Client main entry point.
 
-Initializes and runs the kiosk client application.
+Supports two modes:
+  - Full UI mode (default): PyQt6 kiosk window
+  - Headless mode (--no-ui): terminal-based, no display required
 """
 
 import asyncio
 import sys
 import signal
 import logging
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QTimer
+import argparse
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-
 logger = logging.getLogger(__name__)
 
 
-class KioskClient:
-    """
-    Main kiosk client application.
-    
-    Coordinates all client components.
-    """
-    
-    def __init__(self, config):
-        """
-        Initialize kiosk client.
-        
-        Args:
-            config: Configuration object
-        """
-        self.config = config
-        
-        # Import components
-        from client.audio_capture import AudioCapture
-        from client.vad import SileroVAD
-        from client.ws_client import WebSocketClient
-        from client.audio_playback import AudioPlayback
-        from client.ui.app import KioskMainWindow
-        
-        # Initialize components
-        self.audio_capture = AudioCapture()
-        self.vad = SileroVAD()
-        self.ws_client = WebSocketClient(config.server_ws_url)
-        self.playback = AudioPlayback()
-        self.ui = KioskMainWindow()
-        
-        logger.info("Initialized kiosk client")
-    
-    async def run(self) -> None:
-        """
-        Main client loop.
-        
-        Runs until shutdown signal received.
-        """
-        try:
-            # Connect to server
-            await self.ws_client.connect()
-            
-            # Send session_start message
-            await self.ws_client.send_json({
-                "type": "session_start",
-                "kiosk_id": self.config.kiosk_id,
-                "kiosk_location": self.config.kiosk_location
-            })
-            
-            # Start audio capture and processing
-            await self._process_audio()
-            
-            logger.info("Client running")
-            
-            # Keep running
-            while True:
-                await asyncio.sleep(1)
-                
-        except Exception as e:
-            logger.error(f"Client error: {e}")
-            raise
-    
-    async def _process_audio(self):
-        """Process audio capture and VAD."""
-        async for audio_frame in self.audio_capture.stream():
-            vad_event = self.vad.process_frame(audio_frame)
-            
-            if vad_event.event_type == "speech_end":
-                # Send audio to server
-                await self.ws_client.send_audio(vad_event.audio_buffer)
-    
-    async def shutdown(self) -> None:
-        """Graceful shutdown."""
-        logger.info("Shutting down client...")
-        
-        # Close connections and cleanup
-        await self.ws_client.close()
-        
-        logger.info("Client shutdown complete")
+# ---------------------------------------------------------------------------
+# Headless mode
+# ---------------------------------------------------------------------------
 
+async def run_headless(config) -> None:
+    """
+    Headless client: microphone → VAD → WebSocket → print LLM text.
+
+    No PyQt6, no display required. Useful for WSL2 without WSLg.
+    Press Ctrl+C to quit.
+    """
+    from client.ws_client import WebSocketClient
+    from client.audio_capture import AudioCapture
+    from client.vad import SileroVAD
+
+    ws = WebSocketClient(config.server_ws_url)
+    audio_capture = AudioCapture()
+    vad = SileroVAD()
+
+    logger.info("Connecting to server...")
+    await ws.connect()
+
+    await ws.send_json({
+        "type": "session_start",
+        "kiosk_id": config.kiosk_id,
+        "kiosk_location": config.kiosk_location,
+    })
+    logger.info(f"Session started — kiosk_id={config.kiosk_id}")
+    print("\n[Headless mode] Speak into your microphone. Press Ctrl+C to quit.\n")
+
+    async def receive_loop():
+        """Print server responses to terminal."""
+        response_buffer = ""
+        async for msg in ws.receive():
+            if isinstance(msg, dict):
+                msg_type = msg.get("type")
+                if msg_type == "llm_text_chunk":
+                    text = msg.get("text", "")
+                    final = msg.get("final", False)
+                    if text:
+                        print(text, end="", flush=True)
+                        response_buffer += text
+                    if final:
+                        print()  # newline after full response
+                        response_buffer = ""
+                elif msg_type == "session_ack":
+                    logger.info("Server ready")
+                elif msg_type == "status":
+                    logger.info(f"Server status: {msg.get('state')}")
+                # binary audio chunks are ignored in headless mode (no playback)
+
+    async def capture_loop():
+        """Capture mic → VAD → send speech to server."""
+        async for frame in audio_capture.stream():
+            event = vad.process_frame(frame)
+            if event and event.event_type == "speech_end" and event.audio_buffer:
+                logger.info(f"Speech detected ({len(event.audio_buffer)} bytes) — sending to server")
+                await ws.send_audio(event.audio_buffer)
+
+    # Run both loops concurrently; either finishing stops both
+    try:
+        await asyncio.gather(receive_loop(), capture_loop())
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await ws.close()
+        logger.info("Headless client stopped")
+
+
+# ---------------------------------------------------------------------------
+# Text-only headless mode (no microphone — type queries in terminal)
+# ---------------------------------------------------------------------------
+
+async def run_headless_text(config) -> None:
+    """
+    Text-only headless client: type queries, see LLM responses.
+
+    No microphone, no display. Good for quick pipeline testing.
+    Type a message and press Enter. Type 'quit' to exit.
+    """
+    from client.ws_client import WebSocketClient
+
+    ws = WebSocketClient(config.server_ws_url)
+
+    logger.info("Connecting to server...")
+    await ws.connect()
+
+    await ws.send_json({
+        "type": "session_start",
+        "kiosk_id": config.kiosk_id,
+        "kiosk_location": config.kiosk_location,
+    })
+    print("\n[Text mode] Type a message and press Enter. Type 'quit' to exit.\n")
+
+    async def receive_loop():
+        async for msg in ws.receive():
+            if isinstance(msg, dict):
+                msg_type = msg.get("type")
+                if msg_type == "llm_text_chunk":
+                    text = msg.get("text", "")
+                    final = msg.get("final", False)
+                    if text:
+                        print(text, end="", flush=True)
+                    if final:
+                        print()
+                        print("\nYou: ", end="", flush=True)
+
+    async def input_loop():
+        loop = asyncio.get_event_loop()
+        print("You: ", end="", flush=True)
+        while True:
+            # Read input without blocking the event loop
+            text = await loop.run_in_executor(None, sys.stdin.readline)
+            text = text.strip()
+            if not text:
+                continue
+            if text.lower() in ("quit", "exit", "q"):
+                break
+            await ws.send_json({
+                "type": "text_input",
+                "text": text,
+                "lang": "en",
+            })
+
+    try:
+        await asyncio.gather(receive_loop(), input_loop())
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await ws.close()
+        logger.info("Text client stopped")
+
+
+# ---------------------------------------------------------------------------
+# Full UI mode
+# ---------------------------------------------------------------------------
+
+def run_qt(config) -> None:
+    """Launch the full PyQt6 kiosk UI."""
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtCore import QTimer
+    from client.audio_capture import AudioCapture
+    from client.vad import SileroVAD
+    from client.ws_client import WebSocketClient
+    from client.audio_playback import AudioPlayback
+    from client.ui.app import KioskMainWindow
+
+    app = QApplication(sys.argv)
+
+    audio_capture = AudioCapture()
+    vad = SileroVAD()
+    ws_client = WebSocketClient(config.server_ws_url)
+    playback = AudioPlayback()
+    ui = KioskMainWindow()
+    ui.show()
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    async def client_run():
+        await ws_client.connect()
+        await ws_client.send_json({
+            "type": "session_start",
+            "kiosk_id": config.kiosk_id,
+            "kiosk_location": config.kiosk_location,
+        })
+        async for frame in audio_capture.stream():
+            event = vad.process_frame(frame)
+            if event and event.event_type == "speech_end" and event.audio_buffer:
+                await ws_client.send_audio(event.audio_buffer)
+
+    loop.create_task(client_run())
+
+    timer = QTimer()
+    timer.timeout.connect(lambda: loop.run_until_complete(asyncio.sleep(0)))
+    timer.start(10)
+
+    def _shutdown(sig, frame):
+        logger.info("Shutdown signal received")
+        loop.run_until_complete(ws_client.close())
+        app.quit()
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    sys.exit(app.exec())
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 def main():
-    """Main entry point."""
-    # Load configuration
+    parser = argparse.ArgumentParser(description="Voice Kiosk Client")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--no-ui",
+        action="store_true",
+        help="Headless mode: microphone + VAD, no display required",
+    )
+    mode.add_argument(
+        "--text",
+        action="store_true",
+        help="Text mode: type queries in terminal, no microphone or display needed",
+    )
+    args = parser.parse_args()
+
     from client.config import ClientConfig
     config = ClientConfig.from_env()
-    
-    # Create Qt application
-    app = QApplication(sys.argv)
-    
-    # Create client
-    client = KioskClient(config)
-    
-    # Setup signal handlers
-    def signal_handler(sig, frame):
-        logger.info("Received shutdown signal")
-        asyncio.create_task(client.shutdown())
-        app.quit()
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    # Run event loop with Qt integration
-    try:
-        logger.info("Starting kiosk client application")
-        
-        # Create asyncio event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        # Start client in background
-        loop.create_task(client.run())
-        
-        # Use QTimer to process asyncio events
-        timer = QTimer()
-        timer.timeout.connect(lambda: loop.run_until_complete(asyncio.sleep(0)))
-        timer.start(10)  # Process every 10ms
-        
-        # Run Qt event loop
-        sys.exit(app.exec())
-        
-    except KeyboardInterrupt:
-        logger.info("Keyboard interrupt received")
-        asyncio.run(client.shutdown())
+
+    if args.text:
+        asyncio.run(run_headless_text(config))
+    elif args.no_ui:
+        asyncio.run(run_headless(config))
+    else:
+        run_qt(config)
 
 
 if __name__ == "__main__":
