@@ -1,5 +1,5 @@
 """
-Audio playback with Opus decoding.
+Audio playback with WAV decoding.
 
 Plays audio received from server with buffer management.
 """
@@ -9,20 +9,22 @@ import numpy as np
 import asyncio
 from collections import deque
 import logging
+import io
+import wave
 
 logger = logging.getLogger(__name__)
 
 
 class AudioPlayback:
     """
-    Audio playback with Opus decoding and buffering.
+    Audio playback with WAV decoding and buffering.
     
-    Maintains 200ms buffer for smooth playback.
+    Handles WAV audio from TTS engines (CosyVoice, VOICEVOX).
     """
     
     def __init__(
         self,
-        sample_rate: int = 48000,
+        sample_rate: int = 22050,  # Default for CosyVoice/VOICEVOX
         channels: int = 1,
         buffer_duration_ms: int = 200
     ):
@@ -30,7 +32,7 @@ class AudioPlayback:
         Initialize audio playback.
         
         Args:
-            sample_rate: Sample rate in Hz (48000)
+            sample_rate: Sample rate in Hz (22050 for TTS)
             channels: Number of channels (1 for mono)
             buffer_duration_ms: Buffer duration in milliseconds (200)
         """
@@ -42,10 +44,6 @@ class AudioPlayback:
         self.is_playing = False
         self.stream = None
         
-        # TODO: Initialize Opus decoder
-        # from server.tts.opus_encoder import OpusDecoder
-        # self.opus_decoder = OpusDecoder(sample_rate, channels)
-        
         logger.info(f"Initialized audio playback: {sample_rate}Hz, {channels}ch")
     
     def queue_audio(self, audio_bytes: bytes) -> None:
@@ -53,17 +51,62 @@ class AudioPlayback:
         Queue audio chunk for playback.
         
         Args:
-            audio_bytes: Opus-encoded or PCM16 audio bytes
+            audio_bytes: WAV audio bytes from TTS engine
         """
-        # TODO: Decode Opus to PCM16
-        # pcm_data = self.opus_decoder.decode_frame(audio_bytes)
-        pcm_data = audio_bytes  # Placeholder
+        try:
+            # Decode WAV bytes
+            pcm_data, sample_rate = self._decode_wav(audio_bytes)
+            
+            if pcm_data is None:
+                logger.warning("Failed to decode WAV audio")
+                return
+            
+            # Update sample rate if different
+            if sample_rate != self.sample_rate:
+                logger.info(f"Updating sample rate from {self.sample_rate} to {sample_rate}")
+                self.sample_rate = sample_rate
+            
+            self.audio_queue.append(pcm_data)
+            
+            # Start playback if not already playing
+            if not self.is_playing:
+                asyncio.create_task(self._start_playback())
+                
+        except Exception as e:
+            logger.error(f"Error queuing audio: {e}", exc_info=True)
+    
+    def _decode_wav(self, wav_bytes: bytes) -> tuple:
+        """
+        Decode WAV bytes to PCM data.
         
-        self.audio_queue.append(pcm_data)
-        
-        # Start playback if not already playing
-        if not self.is_playing:
-            asyncio.create_task(self._start_playback())
+        Args:
+            wav_bytes: WAV file bytes
+            
+        Returns:
+            Tuple of (pcm_data as bytes, sample_rate)
+        """
+        try:
+            wav_buffer = io.BytesIO(wav_bytes)
+            
+            with wave.open(wav_buffer, 'rb') as wav_file:
+                sample_rate = wav_file.getframerate()
+                n_channels = wav_file.getnchannels()
+                sample_width = wav_file.getsampwidth()
+                n_frames = wav_file.getnframes()
+                
+                # Read PCM data
+                pcm_data = wav_file.readframes(n_frames)
+                
+                logger.debug(
+                    f"Decoded WAV: {sample_rate}Hz, {n_channels}ch, "
+                    f"{sample_width}B, {len(pcm_data)} bytes"
+                )
+                
+                return pcm_data, sample_rate
+                
+        except Exception as e:
+            logger.error(f"WAV decode error: {e}", exc_info=True)
+            return None, None
     
     async def _start_playback(self) -> None:
         """Start audio playback from queue."""
@@ -96,7 +139,7 @@ class AudioPlayback:
                     await asyncio.sleep(0.01)
                 
         except Exception as e:
-            logger.error(f"Audio playback error: {e}")
+            logger.error(f"Audio playback error: {e}", exc_info=True)
         finally:
             self.is_playing = False
             logger.debug("Audio playback stopped")

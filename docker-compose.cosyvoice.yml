@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  # CosyVoice2 - English TTS service
+  cosyvoice:
+    build:
+      context: ./cosyvoice_service
+      dockerfile: Dockerfile
+    container_name: cosyvoice
+    ports:
+      - "5002:5002"
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface  # Model cache
+    environment:
+      - COSYVOICE_MODEL_PATH=iic/CosyVoice2-0.5B
+      - COSYVOICE_DEVICE=cuda
+      - HOST=0.0.0.0
+      - PORT=5002
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s  # Model loading takes time
+    networks:
+      - voice-network
+    restart: unless-stopped
+
+networks:
+  voice-network:
+    external: true  # Use existing network from main docker-compose.yml

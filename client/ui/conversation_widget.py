@@ -1,81 +1,101 @@
 """
 Conversation display widget.
 
-Shows conversation transcript with user queries and system responses.
+Each user message and each assistant response is a separate bubble.
+Streaming tokens append into the current open assistant bubble.
 """
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QScrollArea
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTextEdit
 from PyQt6.QtCore import Qt, pyqtSlot
+from PyQt6.QtGui import QTextCursor
 import logging
 
 logger = logging.getLogger(__name__)
 
 
 class ConversationWidget(QWidget):
-    """
-    Conversation transcript display.
-    
-    Shows user queries and system responses with auto-scroll.
-    """
-    
+
     def __init__(self):
-        """Initialize conversation widget."""
         super().__init__()
-        
-        # Layout
         layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
-        
-        # Text display
+
         self.text_display = QTextEdit()
         self.text_display.setReadOnly(True)
         self.text_display.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        
         layout.addWidget(self.text_display)
-        
+
+        self._bubble_open = False   # True while streaming into an assistant bubble
         logger.info("Initialized conversation widget")
-    
-    @pyqtSlot(str, str)
+
+    # ---------------------------------------------------------------- public API
+
+    @pyqtSlot(str)
     def add_user_message(self, text: str, lang: str = "en") -> None:
-        """
-        Add user message to conversation.
-        
-        Args:
-            text: User query text
-            lang: Language code
-        """
-        self.text_display.append(f"<b>You:</b> {text}")
+        """Add a complete user bubble."""
+        self._close_bubble_if_open()
+        self.text_display.append(
+            f'<p style="margin:6px 0"><span style="color:#89b4fa;font-weight:bold;">You</span>'
+            f'<span style="color:#585b70;"> ▸ </span>{self._escape(text)}</p>'
+        )
         self._scroll_to_bottom()
-    
+
     @pyqtSlot(str)
     def add_system_message(self, text: str) -> None:
-        """
-        Add system response to conversation.
-        
-        Args:
-            text: System response text
-        """
-        self.text_display.append(f"<b>Assistant:</b> {text}")
+        """Add a complete system/info message (not a streaming bubble)."""
+        self._close_bubble_if_open()
+        self.text_display.append(
+            f'<p style="margin:6px 0;color:#a6adc8;font-style:italic;">{self._escape(text)}</p>'
+        )
         self._scroll_to_bottom()
-    
-    @pyqtSlot(str)
-    def append_to_last_message(self, text: str) -> None:
-        """
-        Append text to last message (for streaming).
-        
-        Args:
-            text: Text chunk to append
-        """
+
+    def start_assistant_bubble(self) -> None:
+        """Open a new assistant bubble — tokens will stream into it."""
+        self._close_bubble_if_open()
+        self.text_display.append(
+            '<p style="margin:6px 0">'
+            '<span style="color:#a6e3a1;font-weight:bold;">Assistant</span>'
+            '<span style="color:#585b70;"> ▸ </span>'
+        )
+        # Move cursor to end so append_to_last_message inserts here
         cursor = self.text_display.textCursor()
-        cursor.movePosition(cursor.MoveOperation.End)
-        cursor.insertText(text)
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self.text_display.setTextCursor(cursor)
+        self._bubble_open = True
         self._scroll_to_bottom()
-    
-    def _scroll_to_bottom(self) -> None:
-        """Scroll to bottom of conversation."""
-        scrollbar = self.text_display.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
-    
+
+    @pyqtSlot(str)
+    def append_to_last_message(self, token: str) -> None:
+        """Append a streaming token to the currently open bubble."""
+        cursor = self.text_display.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.insertText(token)
+        self._scroll_to_bottom()
+
+    def finish_assistant_bubble(self) -> None:
+        """Close the current assistant bubble (add closing tag)."""
+        if self._bubble_open:
+            cursor = self.text_display.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            cursor.insertHtml("</p>")
+            self._bubble_open = False
+            self._scroll_to_bottom()
+
     def clear(self) -> None:
-        """Clear conversation display."""
+        self._bubble_open = False
         self.text_display.clear()
+
+    # ---------------------------------------------------------------- private
+
+    def _close_bubble_if_open(self):
+        if self._bubble_open:
+            self.finish_assistant_bubble()
+
+    def _scroll_to_bottom(self):
+        sb = self.text_display.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    @staticmethod
+    def _escape(text: str) -> str:
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

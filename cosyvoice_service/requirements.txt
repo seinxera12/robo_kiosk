@@ -1,0 +1,15 @@
+# CosyVoice2 TTS Service Requirements
+
+# Web framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Audio processing
+numpy==1.24.3
+soundfile==0.12.1
+
+# Utilities
+pydantic==2.5.0
+
+# CosyVoice dependencies (install separately)
+# See setup guide for CosyVoice installation

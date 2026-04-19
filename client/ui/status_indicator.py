@@ -45,10 +45,12 @@ class StatusIndicator(QWidget):
             status: Status state
         """
         status_map = {
-            "listening": ("🟢  Listening — speak or type your question", "color: #a6e3a1;"),
-            "thinking":  ("🟡  Processing your request...",              "color: #f9e2af;"),
-            "speaking":  ("🔵  Responding...",                           "color: #89b4fa;"),
-            "idle":      ("⚪  Idle",                                    "color: #6c7086;"),
+            "listening":    ("🟢  Listening — speak or type your question", "color: #a6e3a1;"),
+            "recording":    ("🔴  Recording — speak now...",                "color: #f38ba8;"),
+            "transcribing": ("⏳  Transcribing...",                         "color: #f9e2af;"),
+            "thinking":     ("🟡  Processing your request...",              "color: #f9e2af;"),
+            "speaking":     ("🔵  Responding...",                           "color: #89b4fa;"),
+            "idle":         ("⚪  Idle",                                    "color: #6c7086;"),
         }
         
         text, color = status_map.get(status, ("❓ Unknown", "color: black;"))

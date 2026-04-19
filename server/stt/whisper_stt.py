@@ -139,18 +139,16 @@ class WhisperSTT:
     
     def _transcribe_sync(self, audio_float: np.ndarray):
         """
-        Synchronous transcription method for thread pool execution.
-        
-        **Validates: Requirements 4.2, 4.3**
+        Synchronous transcription — runs in thread pool via run_in_executor.
+        The generator is fully consumed here so it doesn't escape the thread.
         """
-        # Requirement 4.2: Use greedy decoding (beam_size=1) for minimum latency
         segments, info = self.model.transcribe(
             audio_float,
-            beam_size=1,           # Greedy decoding for minimum latency
-            language=None,         # Auto-detect language
-            vad_filter=False,      # VAD done client-side
-            condition_on_previous_text=False
+            beam_size=1,
+            language=None,
+            vad_filter=False,
+            condition_on_previous_text=False,
+            without_timestamps=True,   # faster — we don't need word timestamps
         )
-        
-        # Convert generator to list to pass back to async context
+        # Consume generator fully inside the thread
         return list(segments), info

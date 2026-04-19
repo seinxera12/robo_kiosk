@@ -21,6 +21,9 @@ httpx==0.25.1
 numpy==1.24.3
 soundfile==0.12.1
 
+# TTS engines
+# Note: CosyVoice now runs as separate service (see COSYVOICE_SERVICE_SETUP.md)
+
 # Utilities
 python-dotenv==1.0.0
 pydantic==2.5.0

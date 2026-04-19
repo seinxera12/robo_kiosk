@@ -100,6 +100,7 @@ async def health_check():
         JSONResponse: Health status with server information
     """
     config = app_state.get("config")
+    tts_router = app_state.get("tts_router")
     
     health_status = {
         "status": "healthy",
@@ -113,6 +114,32 @@ async def health_check():
             "stt_model": config.stt_model,
             "tts_en_engine": config.tts_en_engine,
         }
+    
+    # Check TTS engine status
+    if tts_router:
+        tts_status = {}
+        
+        # Check CosyVoice (English)
+        if tts_router.cosyvoice:
+            try:
+                is_ready = await tts_router.cosyvoice.health_check()
+                tts_status["cosyvoice_en"] = "ready" if is_ready else "not_loaded"
+            except Exception as e:
+                tts_status["cosyvoice_en"] = f"error: {str(e)}"
+        else:
+            tts_status["cosyvoice_en"] = "not_initialized"
+        
+        # Check VOICEVOX (Japanese)
+        if tts_router.voicevox:
+            try:
+                is_ready = await tts_router.voicevox.health_check()
+                tts_status["voicevox_ja"] = "ready" if is_ready else "unavailable"
+            except Exception as e:
+                tts_status["voicevox_ja"] = f"error: {str(e)}"
+        else:
+            tts_status["voicevox_ja"] = "not_initialized"
+        
+        health_status["tts"] = tts_status
     
     logger.debug("Health check requested")
     return JSONResponse(content=health_status, status_code=200)

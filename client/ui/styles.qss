@@ -110,7 +110,24 @@ QPushButton#clearButton:disabled {
     color: #45475a;
 }
 
-/* ── Listen toggle — ON state ──────────────────────────────── */
+/* ── Speak button ──────────────────────────────────────────── */
+QPushButton#speakButton {
+    background-color: #f38ba8;
+    color: #1e1e2e;
+    font-size: 15px;
+    padding: 6px 16px;
+}
+
+QPushButton#speakButton:hover {
+    background-color: #f5a8bc;
+}
+
+QPushButton#speakButton:disabled {
+    background-color: #313244;
+    color: #585b70;
+}
+
+
 QPushButton#toggleOnButton {
     background-color: #a6e3a1;
     color: #1e1e2e;

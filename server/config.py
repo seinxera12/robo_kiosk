@@ -34,6 +34,8 @@ class Config:
     tts_en_engine: str
     tts_jp_url: str
     
+    
+    
     # RAG Configuration
     chromadb_path: str
     building_name: str
@@ -52,6 +54,9 @@ class Config:
     kiosk_metadata: dict = None
 
     stt_device :str = "cuda"
+    cosyvoice_model_path: str = "iic/CosyVoice2-0.5B"
+    cosyvoice_url: str = "http://localhost:5002"
+    cosyvoice_device: str = "cuda"
     
     def __post_init__(self):
         """Initialize mutable defaults."""
@@ -102,6 +107,7 @@ class Config:
             # TTS Configuration
             tts_en_engine=os.getenv("TTS_EN_ENGINE", "cosyvoice2"),
             tts_jp_url=os.getenv("TTS_JP_URL", "http://localhost:50021"),
+            cosyvoice_url=os.getenv("COSYVOICE_URL", "http://localhost:5002"),
             
             # RAG Configuration
             chromadb_path=os.getenv("CHROMADB_PATH", "/chroma"),

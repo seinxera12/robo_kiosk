@@ -29,14 +29,28 @@ class TTSRouter:
         """
         self.config = config
         
-        # Initialize engines
+        # Initialize engines with graceful fallback
         from server.tts.cosyvoice_tts import CosyVoiceTTS
         from server.tts.voicevox_tts import VoicevoxTTS
         from server.tts.fish_speech_tts import FishSpeechTTS
         
-        self.cosyvoice = CosyVoiceTTS(config)
-        self.voicevox = VoicevoxTTS(config)
-        self.fish_speech = FishSpeechTTS(config)
+        try:
+            self.cosyvoice = CosyVoiceTTS(config)
+        except Exception as e:
+            logger.warning(f"Failed to initialize CosyVoice TTS: {e}")
+            self.cosyvoice = None
+        
+        try:
+            self.voicevox = VoicevoxTTS(config)
+        except Exception as e:
+            logger.warning(f"Failed to initialize VOICEVOX TTS: {e}")
+            self.voicevox = None
+        
+        try:
+            self.fish_speech = FishSpeechTTS(config)
+        except Exception as e:
+            logger.warning(f"Failed to initialize Fish Speech TTS: {e}")
+            self.fish_speech = None
         
         logger.info("Initialized TTS router")
     
@@ -48,20 +62,24 @@ class TTSRouter:
             lang: Language code ("en" or "ja")
             
         Returns:
-            TTS engine instance
+            TTS engine instance, or None if unavailable
         """
         if lang == "en":
             # Return CosyVoice2 engine for English
-            logger.debug("Routing to CosyVoice2 for English")
-            return self.cosyvoice
-        else:
-            # Return VOICEVOX for Japanese (with Fish Speech fallback)
-            logger.debug("Routing to VOICEVOX for Japanese")
-            # Check if VOICEVOX is available
-            if lang == "en":
+            if self.cosyvoice is not None:
+                logger.debug("Routing to CosyVoice2 for English")
                 return self.cosyvoice
             else:
-                return self.voicevox   # VoicevoxTTS.synthesize_stream already handles errors
+                logger.warning("CosyVoice2 not available for English TTS")
+                return None
+        else:
+            # Return VOICEVOX for Japanese
+            if self.voicevox is not None:
+                logger.debug("Routing to VOICEVOX for Japanese")
+                return self.voicevox
+            else:
+                logger.warning("VOICEVOX not available for Japanese TTS")
+                return None
 
 
 async def stream_tts_with_sentence_boundaries(
