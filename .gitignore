@@ -38,3 +38,4 @@ chroma/
 # Temporary files
 *.tmp
 *.bak
+.env.local
