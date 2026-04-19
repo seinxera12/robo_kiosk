@@ -1,10 +1,11 @@
 """
-On-screen keyboard widget (optional).
+Text input widget for the kiosk.
 
-Provides touch-based text input for kiosk.
+Single-line input with Send and Clear buttons.
+Disabled until the pipeline connects.
 """
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QPushButton, QLineEdit
 from PyQt6.QtCore import pyqtSignal
 import logging
 
@@ -12,65 +13,60 @@ logger = logging.getLogger(__name__)
 
 
 class KeyboardWidget(QWidget):
-    """
-    On-screen keyboard for text input.
-    
-    Optional widget for touch-based kiosks.
-    """
-    
-    # Signal emitted when text is submitted
+    """Text input row: [input field] [Send ↵] [Clear ✕]"""
+
     text_submitted = pyqtSignal(str)
-    
+
     def __init__(self):
-        """Initialize keyboard widget."""
         super().__init__()
-        
-        # Layout
-        layout = QVBoxLayout()
+
+        layout = QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
         self.setLayout(layout)
-        
-        # Text input field
+
+        # Input field
         self.input_field = QLineEdit()
-        self.input_field.setPlaceholderText("Type your question here...")
+        self.input_field.setPlaceholderText("Type your question here and press Enter or Send...")
+        self.input_field.setMinimumHeight(52)
         self.input_field.returnPressed.connect(self._submit_text)
-        layout.addWidget(self.input_field)
-        
-        # Submit button
-        button_layout = QHBoxLayout()
-        
-        self.submit_button = QPushButton("Submit")
-        self.submit_button.clicked.connect(self._submit_text)
-        button_layout.addWidget(self.submit_button)
-        
-        self.clear_button = QPushButton("Clear")
+        self.input_field.setEnabled(False)
+        layout.addWidget(self.input_field, stretch=1)
+
+        # Send button
+        self.send_button = QPushButton("Send ↵")
+        self.send_button.setMinimumHeight(52)
+        self.send_button.setMinimumWidth(110)
+        self.send_button.setToolTip("Send your typed question (or press Enter)")
+        self.send_button.clicked.connect(self._submit_text)
+        self.send_button.setEnabled(False)
+        layout.addWidget(self.send_button)
+
+        # Clear button
+        self.clear_button = QPushButton("Clear ✕")
+        self.clear_button.setMinimumHeight(52)
+        self.clear_button.setMinimumWidth(110)
+        self.clear_button.setToolTip("Clear the input field")
+        self.clear_button.setObjectName("clearButton")
         self.clear_button.clicked.connect(self._clear_text)
-        button_layout.addWidget(self.clear_button)
-        
-        layout.addLayout(button_layout)
-        
-        # TODO: Add on-screen keyboard buttons if needed
-        
+        self.clear_button.setEnabled(False)
+        layout.addWidget(self.clear_button)
+
         logger.info("Initialized keyboard widget")
-    
-    def _submit_text(self) -> None:
-        """Submit text input."""
+
+    def _submit_text(self):
         text = self.input_field.text().strip()
-        
         if text:
             self.text_submitted.emit(text)
             self.input_field.clear()
-            logger.info(f"Text submitted: {text[:50]}...")
-    
-    def _clear_text(self) -> None:
-        """Clear text input."""
+            logger.info(f"Text submitted: {text[:60]}...")
+
+    def _clear_text(self):
         self.input_field.clear()
-    
-    def set_enabled(self, enabled: bool) -> None:
-        """
-        Enable or disable keyboard input.
-        
-        Args:
-            enabled: True to enable, False to disable
-        """
+
+    def set_enabled(self, enabled: bool):
         self.input_field.setEnabled(enabled)
-        self.submit_button.setEnabled(enabled)
+        self.send_button.setEnabled(enabled)
+        self.clear_button.setEnabled(enabled)
+        if enabled:
+            self.input_field.setFocus()

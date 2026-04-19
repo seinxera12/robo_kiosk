@@ -159,50 +159,12 @@ async def run_headless_text(config) -> None:
 def run_qt(config) -> None:
     """Launch the full PyQt6 kiosk UI."""
     from PyQt6.QtWidgets import QApplication
-    from PyQt6.QtCore import QTimer
-    from client.audio_capture import AudioCapture
-    from client.vad import SileroVAD
-    from client.ws_client import WebSocketClient
-    from client.audio_playback import AudioPlayback
     from client.ui.app import KioskMainWindow
 
     app = QApplication(sys.argv)
 
-    audio_capture = AudioCapture()
-    vad = SileroVAD()
-    ws_client = WebSocketClient(config.server_ws_url)
-    playback = AudioPlayback()
-    ui = KioskMainWindow()
-    ui.show()
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    async def client_run():
-        await ws_client.connect()
-        await ws_client.send_json({
-            "type": "session_start",
-            "kiosk_id": config.kiosk_id,
-            "kiosk_location": config.kiosk_location,
-        })
-        async for frame in audio_capture.stream():
-            event = vad.process_frame(frame)
-            if event and event.event_type == "speech_end" and event.audio_buffer:
-                await ws_client.send_audio(event.audio_buffer)
-
-    loop.create_task(client_run())
-
-    timer = QTimer()
-    timer.timeout.connect(lambda: loop.run_until_complete(asyncio.sleep(0)))
-    timer.start(10)
-
-    def _shutdown(sig, frame):
-        logger.info("Shutdown signal received")
-        loop.run_until_complete(ws_client.close())
-        app.quit()
-
-    signal.signal(signal.SIGINT, _shutdown)
-    signal.signal(signal.SIGTERM, _shutdown)
+    window = KioskMainWindow(config=config)
+    window.show()
 
     sys.exit(app.exec())
 

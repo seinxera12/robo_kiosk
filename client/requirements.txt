@@ -9,6 +9,7 @@ numpy==1.24.3
 
 # VAD
 torch==2.1.0
+torchaudio==2.1.0
 # Note: Silero VAD is loaded via torch.hub
 
 # WebSocket client

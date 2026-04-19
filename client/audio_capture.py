@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AudioFrame:
-    """20ms PCM16 audio frame."""
-    data: bytes  # 640 bytes = 16kHz * 1ch * 2 bytes * 0.02s
+    """32ms PCM16 audio frame — 512 samples at 16kHz."""
+    data: bytes  # 1024 bytes = 16kHz * 1ch * 2 bytes * 0.032s
     timestamp_ms: int
     sample_rate: int = 16000
     channels: int = 1
@@ -38,15 +38,16 @@ class AudioCapture:
         self,
         sample_rate: int = 16000,
         channels: int = 1,
-        frame_duration_ms: int = 20
+        frame_duration_ms: int = 32   # 32ms = 512 samples — required by Silero VAD at 16kHz
     ):
         """
         Initialize audio capture.
-        
+
         Args:
             sample_rate: Sample rate in Hz (16000)
             channels: Number of channels (1 for mono)
-            frame_duration_ms: Frame duration in milliseconds (20)
+            frame_duration_ms: Frame duration in milliseconds.
+                               Must be 32ms at 16kHz (512 samples) for Silero VAD.
         """
         self.sample_rate = sample_rate
         self.channels = channels

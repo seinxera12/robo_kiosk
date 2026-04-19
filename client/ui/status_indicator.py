@@ -28,9 +28,9 @@ class StatusIndicator(QWidget):
         self.setLayout(layout)
         
         # Status label
-        self.status_label = QLabel("🟢 Listening")
+        self.status_label = QLabel("⚪  Connecting...")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setStyleSheet("font-size: 24px; font-weight: bold;")
+        self.status_label.setStyleSheet("font-size: 20px; font-weight: bold;")
         
         layout.addWidget(self.status_label)
         
@@ -45,10 +45,10 @@ class StatusIndicator(QWidget):
             status: Status state
         """
         status_map = {
-            "listening": ("🟢 Listening", "color: green;"),
-            "thinking": ("🟡 Thinking", "color: orange;"),
-            "speaking": ("🔵 Speaking", "color: blue;"),
-            "idle": ("⚪ Idle", "color: gray;")
+            "listening": ("🟢  Listening — speak or type your question", "color: #a6e3a1;"),
+            "thinking":  ("🟡  Processing your request...",              "color: #f9e2af;"),
+            "speaking":  ("🔵  Responding...",                           "color: #89b4fa;"),
+            "idle":      ("⚪  Idle",                                    "color: #6c7086;"),
         }
         
         text, color = status_map.get(status, ("❓ Unknown", "color: black;"))

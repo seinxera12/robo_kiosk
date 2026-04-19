@@ -83,8 +83,9 @@ class SileroVAD:
             - Updates internal speech buffer
             - Maintains speech/silence counters
         """
-        # Convert to tensor
-        audio_tensor = torch.from_numpy(frame.to_numpy()).float()
+        # Convert to tensor — copy to make writable (avoids PyTorch warning)
+        audio_np = frame.to_numpy().copy()
+        audio_tensor = torch.from_numpy(audio_np).float()
         audio_tensor = audio_tensor / 32768.0  # Normalize to [-1, 1]
         
         # Get VAD probability
