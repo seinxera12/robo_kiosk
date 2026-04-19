@@ -19,16 +19,20 @@ class FishSpeechTTS:
     Used as fallback when VOICEVOX is unavailable.
     """
     
-    def __init__(self, model_path: str, device: str = "cuda"):
+    def __init__(self, config, device: str = "cuda"):
         """
         Initialize Fish Speech model.
-        
+
         Args:
-            model_path: Path to model weights
+            config: Server config object (or model_path string for backwards compat)
             device: Device for inference ("cuda" or "cpu")
         """
-        self.model_path = model_path
-        self.device = device
+        if isinstance(config, str):
+            self.model_path = config
+            self.device = device
+        else:
+            self.model_path = getattr(config, "fish_speech_model_path", "fishaudio/fish-speech-1.5")
+            self.device = getattr(config, "cosyvoice_device", device)
         
         # TODO: Load Fish Speech model
         logger.info(f"Initialized Fish Speech TTS (placeholder)")

@@ -305,7 +305,15 @@ class VoicePipeline:
                 # Stream LLM response with fallback
                 async for token in self.llm_chain.stream_with_fallback(messages):
                     await self.state.token.put(token)
+                    # Also stream text chunks back to the WebSocket client
+                    await self.ws.send_json({
+                        "type": "llm_text_chunk",
+                        "text": token,
+                        "final": False
+                    })
                 
+                # Signal end of response
+                await self.ws.send_json({"type": "llm_text_chunk", "text": "", "final": True})
                 logger.info("LLM streaming complete")
                 
                 # Mark task as done
@@ -447,12 +455,24 @@ class VoicePipeline:
         
         if msg_type == "interrupt":
             await self.handle_interrupt()
+        elif msg_type == "session_start":
+            kiosk_id = message.get("kiosk_id", "unknown")
+            kiosk_location = message.get("kiosk_location", "unknown")
+            self.state.current_turn = {"lang": "en"}
+            logger.info(f"Session started: kiosk_id={kiosk_id}, location={kiosk_location}")
+            await self.ws.send_json({"type": "session_ack", "status": "ready"})
         elif msg_type == "text_input":
-            # Process text input through pipeline
             text = message.get("text", "")
-            lang = message.get("lang", "auto")
+            lang = message.get("lang", "en")
+            if lang == "auto":
+                lang = "en"
             logger.info(f"Text input received: {text[:50]}...")
-            # TODO: Process text input through pipeline
+            # Set current turn language so tts_worker picks the right engine
+            self.state.current_turn = {"lang": lang}
+            # Build a transcript-like object and push it directly into the transcript queue
+            from types import SimpleNamespace
+            transcript = SimpleNamespace(text=text, language=lang)
+            await self.state.transcript.put(transcript)
         else:
             logger.warning(f"Unknown control message type: {msg_type}")
     

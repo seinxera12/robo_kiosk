@@ -19,17 +19,20 @@ class VoicevoxTTS:
     Uses two-step API: audio_query → synthesis
     """
     
-    def __init__(self, base_url: str = "http://voicevox:50021", speaker: int = 1):
+    def __init__(self, config, speaker: int = 1):
         """
         Initialize VOICEVOX client.
-        
+
         Args:
-            base_url: VOICEVOX API base URL
+            config: Server config object (or base_url string for backwards compat)
             speaker: Speaker ID (default: 1)
         """
-        self.base_url = base_url
+        if isinstance(config, str):
+            self.base_url = config
+        else:
+            self.base_url = getattr(config, "tts_jp_url", "http://localhost:50021")
         self.speaker = speaker
-        logger.info(f"Initialized VOICEVOX TTS at {base_url}")
+        logger.info(f"Initialized VOICEVOX TTS at {self.base_url}")
     
     async def health_check(self) -> bool:
         """
