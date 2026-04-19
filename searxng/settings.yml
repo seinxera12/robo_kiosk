@@ -1,92 +1,11 @@
-# SearXNG Configuration for Voice Chatbot System
-# This is a minimal configuration for self-hosted web search
-
-general:
-  debug: false
-  instance_name: "Voice Chatbot Search"
-  contact_url: false
-  enable_metrics: false
-
-search:
-  safe_search: 0  # 0=None, 1=Moderate, 2=Strict
-  autocomplete: ""
-  default_lang: "all"
-  max_page: 0
-  formats:
-    - html
-    - json
-
+use_default_settings: true
 server:
-  port: 8080           # Internal container port — always 8080 inside Docker network
-  bind_address: "0.0.0.0"
-  secret_key: "changeme-replace-this"  # Must match SEARXNG_SECRET in .env
-  limiter: false
-  image_proxy: false
-  method: "GET"
-
+  secret_key: "myvoicekiosk2026secret"
+  bind_address: "0.0.0.0:8080"
+  base_url: "http://localhost:8080/"
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "en"
 ui:
   static_use_hash: true
-  default_locale: "en"
-  query_in_title: false
-  infinite_scroll: false
-  center_alignment: false
-  default_theme: simple
-  theme_args:
-    simple_style: auto
-
-# Enable only fast and reliable search engines
-engines:
-  - name: google
-    disabled: false
-    
-  - name: bing
-    disabled: false
-    
-  - name: duckduckgo
-    disabled: false
-    
-  - name: wikipedia
-    disabled: false
-    
-  - name: wikidata
-    disabled: false
-
-# Disable all other engines by default
-  - name: currency
-    disabled: true
-    
-  - name: dictzone
-    disabled: true
-    
-  - name: ddg definitions
-    disabled: true
-    
-  - name: wiktionary
-    disabled: true
-
-enabled_plugins:
-  - 'Hash plugin'
-  - 'Self Information'
-  - 'Tracker URL remover'
-
-disabled_plugins:
-  - 'Hostname replace'
-  - 'Open Access DOI rewrite'
-  - 'Tor check plugin'
-
-# Outgoing request configuration
-outgoing:
-  request_timeout: 5.0  # 5 second timeout for search requests
-  max_request_timeout: 10.0
-  useragent_suffix: ""
-  pool_connections: 100
-  pool_maxsize: 10
-  enable_http2: true
-  
-# Result formatting
-result_proxy:
-  url: null
-  
-# Redis cache (disabled for simplicity)
-redis:
-  url: false
