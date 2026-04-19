@@ -19,20 +19,19 @@ class CosyVoiceTTS:
     Requires ~1GB VRAM, achieves ~150ms TTFA.
     """
     
-    def __init__(self, model_path: str, device: str = "cuda"):
+    def __init__(self, config):
         """
         Initialize CosyVoice2 model.
-        
+
         Args:
-            model_path: Path to model weights
-            device: Device for inference ("cuda" or "cpu")
+            config: Server config object
         """
-        self.model_path = model_path
-        self.device = device
+        self.model_path = getattr(config, "cosyvoice_model_path", "iic/CosyVoice2-0.5B")
+        self.device = getattr(config, "cosyvoice_device", "cuda")
         
         # TODO: Load CosyVoice2 model
         # from cosyvoice import CosyVoice
-        # self.model = CosyVoice(model_path, device=device)
+        # self.model = CosyVoice(self.model_path, device=self.device)
         
         logger.info(f"Initialized CosyVoice2 TTS (placeholder)")
     

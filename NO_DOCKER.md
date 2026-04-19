@@ -513,7 +513,7 @@ INFO:     Uvicorn running on http://0.0.0.0:8765
 
 Open another terminal and run:
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8765/health
 ```
 
 Expected:
