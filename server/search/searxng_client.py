@@ -15,54 +15,56 @@ async def searxng_search(
     query: str,
     base_url: str = "http://searxng:8080",
     n_results: int = 3,
-    timeout: float = 5.0
+    timeout: float = 8.0
 ) -> List[Dict[str, str]]:
     """
-    Search the web using SearXNG.
-    
+    Search the web using SearXNG (async, non-blocking).
+
     Args:
-        query: Search query string
-        base_url: SearXNG service base URL
+        query:     Search query string
+        base_url:  SearXNG service base URL
         n_results: Number of results to return
-        timeout: Request timeout in seconds
-        
+        timeout:   Total request timeout in seconds (default 8s)
+
     Returns:
-        List of search results with 'title' and 'content' keys
-        
-    Preconditions:
-        - query is non-empty string
-        - SearXNG service is running
-        
-    Postconditions:
-        - Returns up to n_results search results
-        - Each result has title and content
+        List of search results with 'title', 'content', 'url' keys.
+        Returns empty list on any failure — caller handles fallback.
     """
     try:
-        async with httpx.AsyncClient() as client:
+        # Separate connect vs read timeouts to avoid blocking on slow DNS
+        limits  = httpx.Limits(max_connections=5, max_keepalive_connections=2)
+        timeout_cfg = httpx.Timeout(connect=3.0, read=timeout, write=3.0, pool=3.0)
+
+        async with httpx.AsyncClient(limits=limits, timeout=timeout_cfg) as client:
             response = await client.get(
                 f"{base_url}/search",
                 params={
                     "q": query,
                     "format": "json",
-                    "language": "auto"
+                    "language": "auto",
                 },
-                timeout=timeout
             )
             response.raise_for_status()
-            
+
             data = response.json()
             results = []
-            
+
             for item in data.get("results", [])[:n_results]:
                 results.append({
-                    "title": item.get("title", ""),
+                    "title":   item.get("title", ""),
                     "content": item.get("content", ""),
-                    "url": item.get("url", "")
+                    "url":     item.get("url", ""),
                 })
-            
-            logger.info(f"SearXNG search returned {len(results)} results for: {query[:50]}")
+
+            logger.info(f"SearXNG: {len(results)} results for '{query[:50]}'")
             return results
-            
+
+    except httpx.ConnectError:
+        logger.warning("SearXNG unreachable — is the container running?")
+        return []
+    except httpx.TimeoutException:
+        logger.warning(f"SearXNG timed out after {timeout}s")
+        return []
     except Exception as e:
         logger.error(f"SearXNG search failed: {e}")
         return []

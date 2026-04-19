@@ -1,11 +1,18 @@
 use_default_settings: true
+
 server:
   secret_key: "myvoicekiosk2026secret"
   bind_address: "0.0.0.0:8080"
-  base_url: "http://localhost:8080/"
+  base_url: "http://localhost:8081/"
+  limiter: false
+
 search:
   safe_search: 0
   autocomplete: ""
   default_lang: "en"
+  formats:
+    - html
+    - json
+
 ui:
   static_use_hash: true
