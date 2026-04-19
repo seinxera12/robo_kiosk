@@ -399,36 +399,16 @@ class VoicePipeline:
                 # Continue processing despite errors
     
     async def websocket_receiver(self) -> None:
-        """
-        Handle incoming WebSocket messages from client.
-        
-        This worker continuously receives messages from the WebSocket,
-        validates them, and routes them to appropriate handlers.
-        
-        Preconditions:
-            - WebSocket connection is active
-        
-        Postconditions:
-            - Binary audio frames placed in audio_input queue
-            - JSON control messages handled appropriately
-            - Invalid messages logged and rejected
-        
-        Loop Invariants:
-            - Processes one message at a time
-            - Validates all incoming messages
-        
-        Requirements:
-            - 3.2: Receives binary PCM16 audio frames
-            - 3.3: Receives JSON control messages
-            - 3.7: Sends session_start message after connection
-            - 25.2: Validates all WebSocket messages
-        """
         logger.info("websocket_receiver started")
         
         while True:
             try:
-                # Receive message from WebSocket
                 message = await self.ws.receive()
+                
+                # Handle WebSocket disconnect
+                if message.get("type") == "websocket.disconnect":
+                    logger.info("WebSocket disconnected")
+                    break
                 
                 # Handle binary audio frames
                 if "bytes" in message:
@@ -445,9 +425,16 @@ class VoicePipeline:
                 logger.info("websocket_receiver cancelled")
                 break
             
+            except RuntimeError as e:
+                if "disconnect" in str(e).lower():
+                    logger.info("WebSocket connection closed")
+                else:
+                    logger.error(f"WebSocket runtime error: {e}")
+                break  # always stop on RuntimeError from receive()
+            
             except Exception as e:
                 logger.error(f"Error in websocket_receiver: {e}", exc_info=True)
-                # Continue processing despite errors
+                break  # stop the loop on any unexpected error
     
     async def handle_control_message(self, message: dict) -> None:
         """Handle JSON control messages from client."""

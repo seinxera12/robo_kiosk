@@ -37,7 +37,7 @@ class GrokBackend:
             base_url="https://api.x.ai/v1",
             api_key=config.GROK_API_KEY
         )
-        self.model = "grok-3-fast"
+        self.model = "llama-3.3-70b-versatile"
         logger.info("Initialized Grok API backend (cloud fallback)")
     
     async def ping(self) -> None:
