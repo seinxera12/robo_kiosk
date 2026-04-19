@@ -31,14 +31,22 @@ class LLMFallbackChain:
         Args:
             config: Configuration object with backend settings
         """
-        backends = [VLLMBackend(config), OllamaBackend(config)]
+        backends = []
+
+        # Only add vLLM if not explicitly disabled
+        if config.VLLM_MODEL_NAME.lower() != "disabled":
+            backends.append(VLLMBackend(config))
+        else:
+            logger.info("vLLM backend disabled (VLLM_MODEL_NAME=disabled)")
+
+        backends.append(OllamaBackend(config))
 
         if config.GROK_API_KEY:
             backends.append(GrokBackend(config))
+
         self.backends = backends
-        
         self._healthy_index = 0  # Cache last successful backend
-        logger.info("Initialized LLM fallback chain with 3 backends")
+        logger.info(f"Initialized LLM fallback chain with {len(self.backends)} backends: {[b.__class__.__name__ for b in self.backends]}")
     
     async def health_check(self, backend, timeout: float = 5.0) -> bool:
         """

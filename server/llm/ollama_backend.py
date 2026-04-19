@@ -55,6 +55,9 @@ class OllamaBackend:
             
         Yields:
             Text tokens as generated
+            
+        Raises:
+            RuntimeError: If Ollama returns no tokens (model not found or empty response)
         """
         response = await self.client.chat.completions.create(
             model=self.model,
@@ -64,7 +67,15 @@ class OllamaBackend:
             temperature=0.7
         )
         
+        token_count = 0
         async for chunk in response:
             delta = chunk.choices[0].delta
             if delta.content:
+                token_count += 1
                 yield delta.content
+
+        if token_count == 0:
+            raise RuntimeError(
+                f"Ollama returned 0 tokens for model '{self.model}'. "
+                f"Check the model is pulled: `ollama pull {self.model}`"
+            )
