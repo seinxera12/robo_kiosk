@@ -6,6 +6,10 @@ Loads WebSocket URL and kiosk metadata from environment variables.
 
 import os
 from dataclasses import dataclass
+from dotenv import load_dotenv
+
+load_dotenv(".env.local", override=False)
+load_dotenv(".env", override=False)
 
 
 @dataclass

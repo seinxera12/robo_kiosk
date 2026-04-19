@@ -7,6 +7,12 @@ Loads all service configuration from environment variables.
 import os
 from dataclasses import dataclass
 from typing import Optional
+from dotenv import load_dotenv
+
+# Load .env.local first (local overrides), then .env as fallback.
+# override=False means already-set shell vars take highest priority.
+load_dotenv(".env.local", override=False)
+load_dotenv(".env", override=False)
 
 
 @dataclass
