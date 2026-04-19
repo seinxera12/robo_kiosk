@@ -39,6 +39,9 @@ class Config:
     host: str
     port: int
     
+    # Feature toggles
+    use_rag: bool = True  # Set to False to skip RAG retrieval entirely
+
     # Kiosk metadata (set per connection)
     kiosk_metadata: dict = None
 
@@ -104,4 +107,7 @@ class Config:
             # Server Configuration
             host=os.getenv("SERVER_HOST", "0.0.0.0"),
             port=int(os.getenv("SERVER_PORT", "8765")),
+            
+            # Feature toggles
+            use_rag=os.getenv("USE_RAG", "true").lower() not in ("false", "0", "no"),
         )

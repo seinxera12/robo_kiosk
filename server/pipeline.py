@@ -275,14 +275,17 @@ class VoicePipeline:
                 transcript = await self.state.transcript.get()
                 logger.debug(f"Received transcript: {transcript}")
                 
-                # Parallel RAG retrieval
-                rag_context = await self.rag.retrieve(
-                    query=transcript.text,
-                    lang=transcript.language,
-                    n=3
-                )
-                
-                logger.info(f"Retrieved RAG context: {len(rag_context)} chunks")
+                # RAG retrieval (skipped when config.use_rag is False)
+                if self.config.use_rag:
+                    rag_context = await self.rag.retrieve(
+                        query=transcript.text,
+                        lang=transcript.language,
+                        n=3
+                    )
+                    logger.info(f"Retrieved RAG context: {len(rag_context)} chunks")
+                else:
+                    rag_context = ""
+                    logger.info("RAG disabled — skipping retrieval")
                 
                 # Build prompt with RAG context
                 from server.llm.prompt_builder import build_messages
