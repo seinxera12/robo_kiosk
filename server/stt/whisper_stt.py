@@ -119,7 +119,13 @@ class WhisperSTT:
         # Get language and confidence
         # Requirement 4.3: Automatically detect language (English or Japanese)
         # Requirement 4.8: Use Whisper's detected language if confidence ≥0.8
-        language = info.language if info.language in ("en", "ja") else "en"
+        # Requirement 4.9: Fall back to Unicode scan if confidence <0.8
+        from server.lang.detector import detect_language
+        language = detect_language(
+            text=text,
+            whisper_lang=info.language,
+            whisper_confidence=info.language_probability,
+        )
         confidence = info.language_probability
         
         duration_ms = int((time.time() - start_time) * 1000)

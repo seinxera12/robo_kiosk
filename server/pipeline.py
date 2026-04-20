@@ -236,6 +236,10 @@ class VoicePipeline:
                 
                 # Transcribe audio using STT
                 result = await self.stt.transcribe(audio_bytes)
+
+                # Update current turn language so tts_worker routes correctly
+                self.state.current_turn = {"lang": result.language}
+
                 await self.state.transcript.put(result)
 
                 # Send transcript back to client so UI can show what was heard
@@ -447,6 +451,7 @@ class VoicePipeline:
                             self.state.token.get(),
                             timeout=0.5
                         )
+                        self.state.token.task_done()
                         buffer += token
                         
                         # Check for sentence boundary
@@ -489,10 +494,7 @@ class VoicePipeline:
                     logger.error(f"TTS synthesis error: {e}", exc_info=True)
                 
                 logger.info("TTS synthesis complete for sentence")
-                
-                # Mark task as done
-                self.state.token.task_done()
-            
+
             except asyncio.CancelledError:
                 logger.info("tts_worker cancelled")
                 break

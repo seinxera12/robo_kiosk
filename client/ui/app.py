@@ -48,6 +48,7 @@ class PipelineWorker(QObject):
         # Manual speak mode: set True while Speak button is held/active
         self._manual_speak_active = False
         self._response_started = False   # tracks if bubble already opened
+        self._playback = None  # AudioPlayback, created inside worker thread
 
     def run(self):
         self._loop = asyncio.new_event_loop()
@@ -68,6 +69,9 @@ class PipelineWorker(QObject):
         self._ws = WebSocketClient(self.config.server_ws_url)
         self._audio_capture = AudioCapture()
         self._vad = SileroVAD()
+
+        from client.audio_playback import AudioPlayback
+        self._playback = AudioPlayback()
 
         await self._ws.connect()
         await self._ws.send_json({
@@ -97,6 +101,9 @@ class PipelineWorker(QObject):
             if not self._running:
                 break
             if isinstance(msg, bytes):
+                # Binary audio from TTS — queue for playback
+                if self._playback:
+                    self._playback.queue_audio(msg)
                 continue
             if not isinstance(msg, dict):
                 continue
@@ -159,6 +166,9 @@ class PipelineWorker(QObject):
         """Called when Speak button is pressed."""
         if self._loop:
             self._manual_speak_active = True
+            # Stop any ongoing TTS playback (barge-in)
+            if self._playback:
+                self._playback.stop()
 
     def stop_manual_speak(self):
         """Called if user cancels before EOS."""
