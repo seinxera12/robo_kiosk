@@ -6,7 +6,7 @@
 QMainWindow, QWidget {
     background-color: #1e1e2e;
     color: #cdd6f4;
-    font-family: "Segoe UI", "Noto Sans", Arial, sans-serif;
+    font-family: "Noto Sans CJK JP", "Yu Gothic UI", "Meiryo UI", "Segoe UI", "Noto Sans", Arial, sans-serif;
 }
 
 /* ── Status indicator label ────────────────────────────────── */

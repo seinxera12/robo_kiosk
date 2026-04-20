@@ -24,6 +24,10 @@ class ConversationWidget(QWidget):
         self.text_display = QTextEdit()
         self.text_display.setReadOnly(True)
         self.text_display.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        
+        # Ensure proper UTF-8 encoding for Japanese characters
+        self.text_display.setAcceptRichText(True)
+        
         layout.addWidget(self.text_display)
 
         self._bubble_open = False   # True while streaming into an assistant bubble
