@@ -67,7 +67,7 @@ class TTSRouter:
         if lang == "en":
             # Return CosyVoice2 engine for English
             if self.cosyvoice is not None:
-                logger.debug("Routing to CosyVoice2 for English")
+                logger.info("Routing to CosyVoice2 for English")
                 return self.cosyvoice
             else:
                 logger.warning("CosyVoice2 not available for English TTS")
@@ -75,7 +75,7 @@ class TTSRouter:
         else:
             # Return VOICEVOX for Japanese, fall back to Fish Speech
             if self.voicevox is not None:
-                logger.debug("Routing to VOICEVOX for Japanese")
+                logger.info("Routing to VOICEVOX for Japanese")
                 return self.voicevox
             elif self.fish_speech is not None:
                 logger.warning("VOICEVOX unavailable — falling back to Fish Speech")

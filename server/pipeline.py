@@ -474,10 +474,16 @@ class VoicePipeline:
                 logger.debug(f"Complete sentence detected: {buffer[:50]}...")
                 
                 # Get TTS engine for current language
-                current_lang = "en"
+                current_lang = "en"  # fallback default
                 if self.state.current_turn and "lang" in self.state.current_turn:
                     current_lang = self.state.current_turn["lang"]
+                else:
+                    # If no language is set, try to detect from the buffer text
+                    from server.lang.detector import detect_language
+                    current_lang = detect_language(buffer)
+                    logger.debug(f"No language set, detected from text: {current_lang}")
                 
+                logger.info(f"TTS synthesis for language: {current_lang}")
                 tts_engine = self.tts_router.get_engine(lang=current_lang)
                 
                 if tts_engine is None:
@@ -610,15 +616,22 @@ class VoicePipeline:
         elif msg_type == "session_start":
             kiosk_id = message.get("kiosk_id", "unknown")
             kiosk_location = message.get("kiosk_location", "unknown")
-            self.state.current_turn = {"lang": "en"}
+            # Don't set a default language - let it be detected per message
+            self.state.current_turn = {}
             logger.info(f"Session started: kiosk_id={kiosk_id}, location={kiosk_location}")
             await self.ws.send_json({"type": "session_ack", "status": "ready"})
         elif msg_type == "text_input":
             text = message.get("text", "")
-            lang = message.get("lang", "en")
+            lang = message.get("lang", "auto")
+            
+            # Auto-detect language if not specified
             if lang == "auto":
-                lang = "en"
-            logger.info(f"Text input received: {text[:50]}...")
+                from server.lang.detector import detect_language
+                lang = detect_language(text)
+                
+            logger.info(f"Text input received: {text[:50]}... (lang={lang})")
+            logger.debug(f"Full text for language detection: '{text}'")
+            
             # Set current turn language so tts_worker picks the right engine
             self.state.current_turn = {"lang": lang}
             # Build a transcript-like object and push it directly into the transcript queue

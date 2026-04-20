@@ -8,6 +8,7 @@ Requirements: 3.1, 3.7, 23.1, 23.4, 23.5
 """
 
 import logging
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -16,11 +17,18 @@ from fastapi.responses import JSONResponse
 
 from server.config import Config
 
-# Configure logging
+# Configure logging with UTF-8 support
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
 )
+# Ensure UTF-8 encoding for stdout
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
 logger = logging.getLogger(__name__)
 
 

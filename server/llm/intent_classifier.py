@@ -61,6 +61,22 @@ _BUILDING_KEYWORDS: set[str] = {
     "where is", "how do i get", "how to get", "directions to",
     "located", "location of", "find the", "nearest", "closest",
     "which floor", "what floor", "on the",
+    # Japanese Navigation
+    "階", "フロア", "部屋", "オフィス", "事務所",
+    "エレベーター", "エレベータ", "階段", "エスカレーター",
+    "出口", "入口", "ロビー", "受付",
+    # Japanese Facilities
+    "カフェテリア", "食堂", "レストラン", "カフェ", "コーヒー",
+    "トイレ", "お手洗い", "化粧室", "洗面所",
+    "会議室", "ミーティングルーム", "講堂", "オーディトリアム",
+    "駐車場", "パーキング", "ガレージ",
+    "ジム", "フィットネス", "医務室", "クリニック", "薬局",
+    "atm", "銀行", "ショップ", "店舗", "売店",
+    "屋上", "テラス", "庭園",
+    # Japanese Navigation phrases
+    "どこ", "どこです", "どこにあります", "どこですか",
+    "行き方", "道順", "場所", "位置",
+    "最寄り", "一番近い", "何階", "どの階",
 }
 
 _SEARCH_KEYWORDS: set[str] = {
@@ -79,12 +95,27 @@ _SEARCH_KEYWORDS: set[str] = {
     # Explicit search intent
     "search for", "look up", "find out", "what is the latest",
     "who won", "what happened",
+    # Japanese Time-sensitive
+    "今日", "今夜", "明日", "昨日", "今週",
+    "現在", "今", "最新", "最近",
+    "ニュース", "速報", "更新", "アップデート",
+    # Japanese Real-world data
+    "天気", "気温", "予報", "雨", "晴れ",
+    "価格", "値段", "料金", "株価", "市場", "為替",
+    "スコア", "結果", "試合", "ゲーム", "スポーツ",
+    "選挙", "投票", "大統領", "首相",
+    "コロナ", "パンデミック", "ウイルス",
+    # Japanese Explicit search intent
+    "検索", "調べて", "探して", "最新の",
+    "誰が勝った", "何が起こった", "どうなった",
 }
 
 # Phrases that strongly indicate BUILDING even if other words present
 _BUILDING_OVERRIDE_PHRASES: list[str] = [
     "in this building", "in the building", "on this floor",
     "in this office", "at this location",
+    # Japanese equivalents
+    "この建物", "この階", "このオフィス", "この場所",
 ]
 
 
@@ -98,6 +129,11 @@ _BUILDING_ANCHORS = [
     "how do I get to the cafeteria",
     "which floor is the gym on",
     "find the nearest toilet",
+    # Japanese anchors
+    "会議室はどこですか",
+    "カフェテリアへの行き方を教えて",
+    "ジムは何階にありますか",
+    "一番近いトイレを探して",
 ]
 
 _SEARCH_ANCHORS = [
@@ -105,6 +141,11 @@ _SEARCH_ANCHORS = [
     "latest news about",
     "current stock price",
     "who won the match",
+    # Japanese anchors
+    "今日の天気はどうですか",
+    "最新のニュースを教えて",
+    "現在の株価は",
+    "試合の結果は誰が勝った",
 ]
 
 _GENERAL_ANCHORS = [
@@ -112,6 +153,11 @@ _GENERAL_ANCHORS = [
     "what is the capital of France",
     "how do I write a Python function",
     "explain quantum computing",
+    # Japanese anchors
+    "ジョークを教えて",
+    "フランスの首都は何ですか",
+    "Python関数の書き方を教えて",
+    "量子コンピューティングを説明して",
 ]
 
 

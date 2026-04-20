@@ -43,7 +43,12 @@ def detect_from_unicode(text: str) -> Literal["en", "ja"]:
     text_length = max(len(text), 1)  # Avoid division by zero
     japanese_ratio = jp_chars / text_length
     
-    return "ja" if japanese_ratio > 0.2 else "en"
+    # Lower threshold for better Japanese detection and add debug logging
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.debug(f"Unicode detection: jp_chars={jp_chars}, total={text_length}, ratio={japanese_ratio:.3f}")
+    
+    return "ja" if japanese_ratio > 0.1 else "en"  # Lowered from 0.2 to 0.1
 
 
 def detect_language(
@@ -79,11 +84,19 @@ def detect_language(
         - Character count remains consistent during iteration
         - Japanese character ratio is monotonically computed
     """
-    CONFIDENCE_THRESHOLD = 0.8
+    CONFIDENCE_THRESHOLD = 0.6  # Lowered from 0.8 for better detection
     
     # Primary: Use Whisper detection if confident
     if whisper_lang and whisper_confidence >= CONFIDENCE_THRESHOLD:
-        return whisper_lang if whisper_lang in ("en", "ja") else "en"
+        detected_lang = whisper_lang if whisper_lang in ("en", "ja") else "en"
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.debug(f"Using Whisper detection: {detected_lang} (confidence={whisper_confidence:.3f})")
+        return detected_lang
     
     # Fallback: Unicode block scan
-    return detect_from_unicode(text)
+    fallback_lang = detect_from_unicode(text)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.debug(f"Using Unicode fallback: {fallback_lang} (Whisper confidence={whisper_confidence:.3f} < {CONFIDENCE_THRESHOLD})")
+    return fallback_lang
