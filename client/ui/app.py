@@ -44,7 +44,7 @@ class PipelineWorker(QObject):
         self._loop  = None
         self._ws    = None
         self._running = False
-        self.listening_enabled = True
+        self.listening_enabled = False  # default OFF — user must enable explicitly
         # Manual speak mode: set True while Speak button is held/active
         self._manual_speak_active = False
         self._response_started = False   # tracks if bubble already opened
@@ -78,9 +78,18 @@ class PipelineWorker(QObject):
         self.connected.emit()
         self.status_changed.emit("listening")
 
+        # Run receive loop always; capture loop is best-effort (audio may be unavailable)
+        async def safe_capture_loop():
+            try:
+                await self._capture_loop()
+            except Exception as e:
+                logger.warning(f"Audio capture unavailable: {e}")
+                self.error_occurred.emit(f"Audio capture unavailable: {e}")
+                # Don't re-raise — keep the receive loop and text input alive
+
         await asyncio.gather(
             self._receive_loop(),
-            self._capture_loop(),
+            safe_capture_loop(),
         )
 
     async def _receive_loop(self):
@@ -156,7 +165,7 @@ class PipelineWorker(QObject):
         self._manual_speak_active = False
 
     def send_text(self, text: str, lang: str = "en"):
-        if self._loop and self._ws:
+        if self._loop and not self._loop.is_closed() and self._ws:
             asyncio.run_coroutine_threadsafe(
                 self._ws.send_json({"type": "text_input", "text": text, "lang": lang}),
                 self._loop,
@@ -239,15 +248,15 @@ class KioskMainWindow(QMainWindow):
         self.speak_button.setObjectName("speakButton")
         self.speak_button.setToolTip("Press to speak — VAD detects end of speech automatically")
         self.speak_button.setEnabled(False)
-        self.speak_button.setVisible(False)   # hidden while always-listen is ON
+        self.speak_button.setVisible(True)   # visible by default (always-listen starts OFF)
         self.speak_button.clicked.connect(self._on_speak_pressed)
         bottom_row.addWidget(self.speak_button)
 
         # Always-listen toggle
-        self.listen_toggle = QPushButton("🎤  Always Listen: ON")
+        self.listen_toggle = QPushButton("🔇  Always Listen: OFF")
         self.listen_toggle.setFixedHeight(44)
         self.listen_toggle.setMinimumWidth(220)
-        self.listen_toggle.setObjectName("toggleOnButton")
+        self.listen_toggle.setObjectName("toggleOffButton")
         self.listen_toggle.setToolTip("Toggle always-on voice listening")
         self.listen_toggle.setEnabled(False)
         self.listen_toggle.clicked.connect(self._on_toggle_listen)
@@ -287,7 +296,8 @@ class KioskMainWindow(QMainWindow):
     def _on_connected(self):
         self.keyboard.set_enabled(True)
         self.listen_toggle.setEnabled(True)
-        self.mic_status.setText("🎤  Microphone: always listening — just speak naturally")
+        self.speak_button.setEnabled(True)
+        self.mic_status.setText("🔇  Always Listen OFF — press Speak to talk")
         self.conversation.add_system_message("Connected. Speak or type your question.")
         logger.info("Pipeline connected")
 

@@ -119,6 +119,8 @@ class SileroVAD:
         
         else:
             self.silence_counter += len(frame.data) // 2  # samples
+            if not self.is_speaking:
+                self.speech_counter = 0  # reset pre-speech accumulator on silence
             
             if self.is_speaking and self.silence_counter >= self.min_silence_samples:
                 # Speech end detected

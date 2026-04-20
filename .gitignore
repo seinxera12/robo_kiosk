@@ -12,7 +12,7 @@ __pycache__/
 models/
 
 # Virtual environment
-client-env/
+client-venv/
 venv/
 env/
 ENV/
