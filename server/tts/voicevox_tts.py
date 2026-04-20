@@ -43,8 +43,16 @@ class VoicevoxTTS:
         """
         try:
             async with httpx.AsyncClient() as client:
-                resp = await client.get(f"{self.base_url}/speakers", timeout=2.0)
-                return resp.status_code == 200
+                resp = await client.get(f"{self.base_url}/speakers", timeout=3.0)
+                if resp.status_code == 200:
+                    logger.debug("VOICEVOX service health check passed")
+                    return True
+                else:
+                    logger.warning(f"VOICEVOX service health check failed: HTTP {resp.status_code}")
+                    return False
+        except httpx.TimeoutException:
+            logger.warning("VOICEVOX health check timed out")
+            return False
         except Exception as e:
             logger.warning(f"VOICEVOX health check failed: {e}")
             return False

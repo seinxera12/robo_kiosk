@@ -59,7 +59,7 @@ def detect_language(
     """
     Detect language with Whisper primary, Unicode fallback.
     
-    Uses Whisper STT language detection when confidence >= 0.8,
+    Uses Whisper STT language detection when confidence >= 0.6,
     otherwise falls back to Unicode block scanning.
     
     Args:
@@ -76,27 +76,31 @@ def detect_language(
     
     Postconditions:
         - Returns either "en" or "ja"
-        - Uses Whisper result if confidence >= 0.8
-        - Falls back to Unicode scan if confidence < 0.8
+        - Uses Whisper result if confidence >= 0.6
+        - Falls back to Unicode scan if confidence < 0.6
         - Deterministic for same inputs
     
     Loop Invariants:
         - Character count remains consistent during iteration
         - Japanese character ratio is monotonically computed
     """
-    CONFIDENCE_THRESHOLD = 0.6  # Lowered from 0.8 for better detection
+    CONFIDENCE_THRESHOLD = 0.6  # Balanced threshold for accuracy
     
-    # Primary: Use Whisper detection if confident
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Primary: Use Whisper detection if confident and valid
     if whisper_lang and whisper_confidence >= CONFIDENCE_THRESHOLD:
-        detected_lang = whisper_lang if whisper_lang in ("en", "ja") else "en"
-        import logging
-        logger = logging.getLogger(__name__)
+        # Map common language codes to our supported languages
+        lang_mapping = {
+            "en": "en", "english": "en",
+            "ja": "ja", "japanese": "ja", "jp": "ja"
+        }
+        detected_lang = lang_mapping.get(whisper_lang.lower(), "en")
         logger.debug(f"Using Whisper detection: {detected_lang} (confidence={whisper_confidence:.3f})")
         return detected_lang
     
     # Fallback: Unicode block scan
     fallback_lang = detect_from_unicode(text)
-    import logging
-    logger = logging.getLogger(__name__)
     logger.debug(f"Using Unicode fallback: {fallback_lang} (Whisper confidence={whisper_confidence:.3f} < {CONFIDENCE_THRESHOLD})")
     return fallback_lang

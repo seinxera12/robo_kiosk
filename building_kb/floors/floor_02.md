@@ -30,3 +30,4 @@ Floor 2 contains office spaces, meeting rooms, and collaboration areas.
 - North stairwell
 - South stairwell
 - Emergency assembly point: Ground floor parking lot
+

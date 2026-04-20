@@ -48,7 +48,7 @@ class AudioPlayback:
     
     def queue_audio(self, audio_bytes: bytes) -> None:
         """
-        Queue audio chunk for playback.
+        Queue audio chunk for playback with enhanced format detection.
         
         Args:
             audio_bytes: WAV audio bytes from TTS engine
@@ -58,13 +58,22 @@ class AudioPlayback:
             pcm_data, sample_rate = self._decode_wav(audio_bytes)
             
             if pcm_data is None:
-                logger.warning("Failed to decode WAV audio")
+                logger.warning("Failed to decode WAV audio - checking if raw PCM")
+                # Some TTS engines might return raw PCM - try to handle it
+                if len(audio_bytes) > 0:
+                    logger.info("Attempting to play as raw PCM data")
+                    self.audio_queue.append(audio_bytes)
+                    if not self.is_playing:
+                        asyncio.create_task(self._start_playback())
                 return
             
-            # Update sample rate if different
+            # Update sample rate if different (common with different TTS engines)
             if sample_rate != self.sample_rate:
                 logger.info(f"Updating sample rate from {self.sample_rate} to {sample_rate}")
                 self.sample_rate = sample_rate
+                # Stop current playback to reinitialize with new sample rate
+                if self.is_playing:
+                    self.stop()
             
             self.audio_queue.append(pcm_data)
             

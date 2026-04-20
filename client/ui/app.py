@@ -37,6 +37,8 @@ class PipelineWorker(QObject):
     mic_active      = pyqtSignal(bool)
     connected       = pyqtSignal()
     error_occurred  = pyqtSignal(str)
+    manual_speak_done = pyqtSignal()    # VAD detected end of speech in manual mode
+    manual_speak_timeout = pyqtSignal() # Manual speak timed out
 
     def __init__(self, config):
         super().__init__()
@@ -47,6 +49,7 @@ class PipelineWorker(QObject):
         self.listening_enabled = False  # default OFF — user must enable explicitly
         # Manual speak mode: set True while Speak button is held/active
         self._manual_speak_active = False
+        self._manual_speak_timer = None  # QTimer for timeout
         self._response_started = False   # tracks if bubble already opened
         self._playback = None  # AudioPlayback, created inside worker thread
 
@@ -133,46 +136,121 @@ class PipelineWorker(QObject):
                 logger.info("Server ready")
 
     async def _capture_loop(self):
-        async for frame in self._audio_capture.stream():
-            if not self._running:
+        retry_count = 0
+        max_retries = 3
+        
+        while self._running and retry_count < max_retries:
+            try:
+                async for frame in self._audio_capture.stream():
+                    if not self._running:
+                        break
+
+                    # Debug: Log every 100 frames (about 3 seconds) to show capture is working
+                    if not hasattr(self, '_frame_counter'):
+                        self._frame_counter = 0
+                    self._frame_counter += 1
+                    
+                    if self._frame_counter % 100 == 0:
+                        logger.debug(f"Audio capture active: frame {self._frame_counter}, manual_speak={self._manual_speak_active}, listening={self.listening_enabled}")
+
+                    # Gate: only process if always-listen ON or manual speak active
+                    should_process = self.listening_enabled or self._manual_speak_active
+                    if not should_process:
+                        continue
+
+                    try:
+                        event = self._vad.process_frame(frame)
+                        if event is None:
+                            continue
+
+                        logger.debug(f"VAD event: {event.event_type}")
+
+                        if event.event_type == "speech_start":
+                            self.mic_active.emit(True)
+                            self.status_changed.emit("recording")
+
+                        elif event.event_type == "speech_end" and event.audio_buffer:
+                            self.mic_active.emit(False)
+                            self.status_changed.emit("transcribing")
+                            logger.info(f"Sending {len(event.audio_buffer)} bytes of audio to server")
+                            # If manual speak, auto-deactivate after EOS
+                            if self._manual_speak_active:
+                                self._manual_speak_active = False
+                                # Clean up timeout timer
+                                if self._manual_speak_timer:
+                                    self._manual_speak_timer.stop()
+                                    self._manual_speak_timer = None
+                                self.manual_speak_done.emit()
+                            
+                            try:
+                                await self._ws.send_audio(event.audio_buffer)
+                            except Exception as e:
+                                logger.error(f"Failed to send audio: {e}")
+                                self.error_occurred.emit(f"Audio transmission failed: {e}")
+                                
+                    except Exception as e:
+                        logger.warning(f"VAD processing error: {e}")
+                        continue
+                        
+                # If we reach here, the stream ended normally
                 break
-
-            # Gate: only process if always-listen ON or manual speak active
-            should_process = self.listening_enabled or self._manual_speak_active
-            if not should_process:
-                continue
-
-            event = self._vad.process_frame(frame)
-            if event is None:
-                continue
-
-            if event.event_type == "speech_start":
-                self.mic_active.emit(True)
-                self.status_changed.emit("recording")
-
-            elif event.event_type == "speech_end" and event.audio_buffer:
-                self.mic_active.emit(False)
-                self.status_changed.emit("transcribing")
-                # If manual speak, auto-deactivate after EOS
-                if self._manual_speak_active:
-                    self._manual_speak_active = False
-                    self.manual_speak_done.emit()
-                await self._ws.send_audio(event.audio_buffer)
+                
+            except Exception as e:
+                retry_count += 1
+                logger.warning(f"Audio capture failed (attempt {retry_count}/{max_retries}): {e}")
+                
+                if retry_count < max_retries:
+                    logger.info(f"Retrying audio capture in 2 seconds...")
+                    await asyncio.sleep(2)
+                    # Reinitialize audio capture
+                    try:
+                        from client.audio_capture import AudioCapture
+                        self._audio_capture = AudioCapture()
+                    except Exception as init_error:
+                        logger.error(f"Failed to reinitialize audio capture: {init_error}")
+                else:
+                    logger.error("Audio capture failed permanently")
+                    self.error_occurred.emit("Microphone unavailable - please check your audio settings")
 
     # Extra signal for manual speak done
     manual_speak_done = pyqtSignal()
 
     def start_manual_speak(self):
         """Called when Speak button is pressed."""
+        logger.info("start_manual_speak called")
         if self._loop:
             self._manual_speak_active = True
+            logger.info("Manual speak activated")
             # Stop any ongoing TTS playback (barge-in)
             if self._playback:
                 self._playback.stop()
+            
+            # Set up timeout timer (15 seconds)
+            from PyQt6.QtCore import QTimer
+            if self._manual_speak_timer:
+                self._manual_speak_timer.stop()
+            
+            self._manual_speak_timer = QTimer()
+            self._manual_speak_timer.setSingleShot(True)
+            self._manual_speak_timer.timeout.connect(self._on_manual_speak_timeout)
+            self._manual_speak_timer.start(15000)  # 15 second timeout
+            logger.info("Manual speak timeout timer started (15s)")
+        else:
+            logger.error("No event loop available for manual speak")
 
     def stop_manual_speak(self):
-        """Called if user cancels before EOS."""
+        """Called if user cancels before EOS or on timeout."""
         self._manual_speak_active = False
+        if self._manual_speak_timer:
+            self._manual_speak_timer.stop()
+            self._manual_speak_timer = None
+
+    def _on_manual_speak_timeout(self):
+        """Handle manual speak timeout."""
+        if self._manual_speak_active:
+            self._manual_speak_active = False
+            self.manual_speak_timeout.emit()
+            logger.warning("Manual speak timed out after 15 seconds")
 
     def send_text(self, text: str, lang: str = "en"):
         if self._loop and not self._loop.is_closed() and self._ws:
@@ -262,6 +340,17 @@ class KioskMainWindow(QMainWindow):
         self.speak_button.clicked.connect(self._on_speak_pressed)
         bottom_row.addWidget(self.speak_button)
 
+        # Stop button — only visible during manual speak
+        self.stop_button = QPushButton("⏹  Stop")
+        self.stop_button.setFixedHeight(44)
+        self.stop_button.setMinimumWidth(100)
+        self.stop_button.setObjectName("stopButton")
+        self.stop_button.setToolTip("Stop recording")
+        self.stop_button.setEnabled(False)
+        self.stop_button.setVisible(False)   # hidden by default
+        self.stop_button.clicked.connect(self._on_stop_pressed)
+        bottom_row.addWidget(self.stop_button)
+
         # Always-listen toggle
         self.listen_toggle = QPushButton("🔇  Always Listen: OFF")
         self.listen_toggle.setFixedHeight(44)
@@ -296,6 +385,7 @@ class KioskMainWindow(QMainWindow):
         self._worker.transcript_ready.connect(self._on_transcript_ready)
         self._worker.mic_active.connect(self._on_mic_active)
         self._worker.manual_speak_done.connect(self._on_manual_speak_done)
+        self._worker.manual_speak_timeout.connect(self._on_manual_speak_timeout)
         self._worker.connected.connect(self._on_connected)
         self._worker.error_occurred.connect(self._on_error)
 
@@ -351,13 +441,14 @@ class KioskMainWindow(QMainWindow):
             self.listen_toggle.setObjectName("toggleOnButton")
             self.speak_button.setVisible(False)
             self.speak_button.setEnabled(False)
+            self.stop_button.setVisible(False)
+            self.stop_button.setEnabled(False)
             self.mic_status.setText("🎤  Microphone: always listening — just speak naturally")
             self.mic_status.setStyleSheet("")
         else:
             self.listen_toggle.setText("🔇  Always Listen: OFF")
             self.listen_toggle.setObjectName("toggleOffButton")
-            self.speak_button.setVisible(True)
-            self.speak_button.setEnabled(True)
+            self._reset_speak_buttons()
             self.mic_status.setText("🔇  Always Listen OFF — press Speak to talk")
             self.mic_status.setStyleSheet("color: #6c7086;")
 
@@ -368,17 +459,52 @@ class KioskMainWindow(QMainWindow):
     def _on_speak_pressed(self):
         """User pressed Speak — activate one-shot VAD capture."""
         if not self._worker:
+            logger.error("No worker available")
             return
+            
+        logger.info("Speak button pressed - starting manual speak mode")
         self.speak_button.setEnabled(False)
+        self.speak_button.setVisible(False)
+        self.stop_button.setEnabled(True)
+        self.stop_button.setVisible(True)
         self.speak_button.setText("🔴  Listening...")
         self.mic_status.setText("🔴  Recording — speak now, stop when done")
         self.mic_status.setStyleSheet("color: #f38ba8; font-weight: bold;")
-        self._worker.start_manual_speak()
+        
+        try:
+            self._worker.start_manual_speak()
+            logger.info("Manual speak mode activated")
+        except Exception as e:
+            logger.error(f"Failed to start manual speak: {e}")
+            self._reset_speak_buttons()
+
+    def _on_stop_pressed(self):
+        """User pressed Stop — cancel manual speak."""
+        if not self._worker:
+            return
+        self._worker.stop_manual_speak()
+        self._reset_speak_buttons()
+        self.mic_status.setText("🔇  Always Listen OFF — press Speak to talk")
+        self.mic_status.setStyleSheet("color: #6c7086;")
 
     def _on_manual_speak_done(self):
         """VAD detected end of speech in manual mode — reset button."""
+        self._reset_speak_buttons()
+
+    def _on_manual_speak_timeout(self):
+        """Manual speak timed out — reset button and show message."""
+        self._reset_speak_buttons()
+        self.conversation.add_system_message("⏰ Recording timed out after 15 seconds. Please try again.")
+        self.mic_status.setText("🔇  Always Listen OFF — press Speak to talk")
+        self.mic_status.setStyleSheet("color: #6c7086;")
+
+    def _reset_speak_buttons(self):
+        """Reset speak/stop buttons to default state."""
         self.speak_button.setText("🎙  Speak")
         self.speak_button.setEnabled(True)
+        self.speak_button.setVisible(True)
+        self.stop_button.setEnabled(False)
+        self.stop_button.setVisible(False)
 
     def _on_transcript_ready(self, text: str):
         """Server returned transcript — show as user bubble."""
@@ -402,10 +528,28 @@ class KioskMainWindow(QMainWindow):
 
     def _on_error(self, msg: str):
         self.status.set_status("idle")
-        self.mic_status.setText("⚠️  Error — restart the client")
+        
+        # Provide specific error messages
+        if "WebSocket" in msg or "connection" in msg.lower():
+            error_msg = "⚠️  Server connection failed - check if server is running"
+            self.mic_status.setText("🔌  Server offline - restart server and client")
+        elif "audio" in msg.lower() or "microphone" in msg.lower():
+            error_msg = "⚠️  Microphone error - check audio permissions"
+            self.mic_status.setText("🎤  Microphone unavailable - check settings")
+        elif "VAD" in msg or "torch" in msg:
+            error_msg = "⚠️  Audio processing error - missing dependencies"
+            self.mic_status.setText("📦  Missing audio libraries - run pip install")
+        else:
+            error_msg = f"⚠️  Error: {msg}"
+            self.mic_status.setText("⚠️  Error - restart the client")
+            
         self.mic_status.setStyleSheet("color: #f38ba8;")
-        self.conversation.add_system_message(f"⚠️ Error: {msg}")
+        self.conversation.add_system_message(error_msg)
         logger.error(f"Pipeline error: {msg}")
+        
+        # Disable buttons on error
+        self.speak_button.setEnabled(False)
+        self.listen_toggle.setEnabled(False)
 
     # --------------------------------------------------------- Lifecycle
 

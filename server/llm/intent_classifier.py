@@ -88,13 +88,25 @@ _SEARCH_KEYWORDS: set[str] = {
     "weather", "temperature", "forecast", "rain", "sunny",
     "price", "prices", "cost", "stock", "market", "exchange rate",
     "score", "result", "match", "game", "sports",
-    "election", "vote", "president", "prime minister",
+    "election", "vote", "president", "prime minister", "minister",
     "covid", "pandemic", "virus",
+    # Government and politics
+    "government", "parliament", "congress", "senate", "cabinet",
+    "leader", "ruler", "chief", "head of state", "head of government",
+    "political", "politics", "policy", "law", "legislation",
+    # Countries and world events
+    "nepal", "nepalese", "kathmandu", "china", "chinese", "beijing",
+    "india", "indian", "delhi", "japan", "japanese", "tokyo",
+    "usa", "america", "american", "washington", "europe", "european",
+    # Current events indicators - be more specific to avoid math questions
+    "who is the", "who was the", "who became", "who won", "who lost",
+    "what is the current", "what is the latest", "what happened", "what's happening",
+    "when did", "when will", "where is the", "how much does", "how many people",
     # Year references (current or near-future)
     "2024", "2025", "2026", "2027",
     # Explicit search intent
     "search for", "look up", "find out", "what is the latest",
-    "who won", "what happened",
+    "who won", "what happened", "tell me about", "information about",
     # Japanese Time-sensitive
     "今日", "今夜", "明日", "昨日", "今週",
     "現在", "今", "最新", "最近",
@@ -103,11 +115,18 @@ _SEARCH_KEYWORDS: set[str] = {
     "天気", "気温", "予報", "雨", "晴れ",
     "価格", "値段", "料金", "株価", "市場", "為替",
     "スコア", "結果", "試合", "ゲーム", "スポーツ",
-    "選挙", "投票", "大統領", "首相",
+    "選挙", "投票", "大統領", "首相", "総理", "大臣",
     "コロナ", "パンデミック", "ウイルス",
+    # Japanese Countries and politics
+    "ネパール", "中国", "インド", "日本", "アメリカ",
+    "政府", "政治", "国会", "議会", "内閣",
+    "リーダー", "指導者", "元首", "政治家",
+    # Japanese question words
+    "誰", "誰が", "誰は", "何", "何が", "何は",
+    "いつ", "どこ", "どう", "どのように",
     # Japanese Explicit search intent
     "検索", "調べて", "探して", "最新の",
-    "誰が勝った", "何が起こった", "どうなった",
+    "誰が勝った", "何が起こった", "どうなった", "について教えて",
 }
 
 # Phrases that strongly indicate BUILDING even if other words present
@@ -266,6 +285,7 @@ class IntentClassifier:
         # Check building override phrases first
         for phrase in _BUILDING_OVERRIDE_PHRASES:
             if phrase in text_lower:
+                logger.debug(f"Building override phrase matched: '{phrase}'")
                 return ClassificationResult(
                     intent=Intent.BUILDING,
                     confidence=0.95,
@@ -279,8 +299,14 @@ class IntentClassifier:
 
         building_score = len(building_hits)
         search_score   = len(search_hits)
+        
+        # Enhanced logging for debugging
+        logger.debug(f"Keyword analysis: text='{text_lower[:50]}...'")
+        logger.debug(f"Building hits ({building_score}): {building_hits[:5]}")
+        logger.debug(f"Search hits ({search_score}): {search_hits[:5]}")
 
         if building_score == 0 and search_score == 0:
+            logger.debug("No keywords matched - defaulting to GENERAL")
             return ClassificationResult(
                 intent=Intent.GENERAL,
                 confidence=0.4,
@@ -290,6 +316,7 @@ class IntentClassifier:
 
         if building_score > search_score:
             conf = min(0.6 + building_score * 0.1, 0.95)
+            logger.debug(f"Building wins: {building_score} > {search_score}, conf={conf:.2f}")
             return ClassificationResult(
                 intent=Intent.BUILDING,
                 confidence=conf,
@@ -299,6 +326,7 @@ class IntentClassifier:
 
         if search_score > building_score:
             conf = min(0.6 + search_score * 0.1, 0.95)
+            logger.debug(f"Search wins: {search_score} > {building_score}, conf={conf:.2f}")
             return ClassificationResult(
                 intent=Intent.SEARCH,
                 confidence=conf,
@@ -307,6 +335,7 @@ class IntentClassifier:
             )
 
         # Tie — slight preference for BUILDING (kiosk context)
+        logger.debug(f"Tie: {building_score} = {search_score}, defaulting to BUILDING")
         return ClassificationResult(
             intent=Intent.BUILDING,
             confidence=0.55,

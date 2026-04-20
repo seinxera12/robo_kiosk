@@ -98,40 +98,42 @@ class AudioCapture:
         Pick the best available input device.
 
         Priority order (WSL2-friendly):
-          1. Explicit device set at construction time
-          2. Any device whose host API is PulseAudio (avoids ALSA RT-thread crash)
-          3. First device with input channels (generic fallback)
-
-        Returns device index, or raises RuntimeError if nothing is found.
+        1. PulseAudio devices (WSLg compatibility)
+        2. Default input device
+        3. Any available input device
         """
-        if self.device is not None:
-            return self.device
-
-        devices = sd.query_devices()
-        host_apis = sd.query_hostapis()
-
-        # Build a set of PulseAudio host-API indices
-        pulse_api_indices = {
-            i for i, api in enumerate(host_apis)
-            if "pulse" in api["name"].lower()
-        }
-
-        # 1st pass: prefer PulseAudio devices
-        for i, d in enumerate(devices):
-            if d["max_input_channels"] > 0 and d["hostapi"] in pulse_api_indices:
-                logger.info(f"Selected PulseAudio input device {i}: {d['name']}")
-                return i
-
-        # 2nd pass: any input device
-        for i, d in enumerate(devices):
-            if d["max_input_channels"] > 0:
-                logger.info(f"Selected input device {i}: {d['name']}")
-                return i
-
-        raise RuntimeError(
-            "No audio input device found. "
-            "Run: python -c \"import sounddevice as sd; print(sd.query_devices())\""
-        )
+        try:
+            devices = sd.query_devices()
+            logger.debug(f"Available audio devices: {len(devices)}")
+            
+            # Log all devices for debugging
+            for i, device in enumerate(devices):
+                logger.debug(f"Device {i}: {device['name']} (inputs: {device['max_input_channels']})")
+            
+            # Try default input device first
+            try:
+                default_device = sd.default.device[0]  # Input device
+                if default_device is not None:
+                    device_info = sd.query_devices(default_device)
+                    if device_info['max_input_channels'] > 0:
+                        logger.info(f"Using default input device: {device_info['name']}")
+                        return default_device
+            except Exception as e:
+                logger.warning(f"Default device check failed: {e}")
+            
+            # Find first device with input channels
+            for i, device in enumerate(devices):
+                if device['max_input_channels'] > 0:
+                    logger.info(f"Using input device {i}: {device['name']}")
+                    return i
+            
+            # Fallback to device 0
+            logger.warning("No input devices found, using device 0")
+            return 0
+            
+        except Exception as e:
+            logger.error(f"Device selection failed: {e}")
+            return 0  # Fallback
 
     async def stream(self) -> AsyncIterator[AudioFrame]:
         """

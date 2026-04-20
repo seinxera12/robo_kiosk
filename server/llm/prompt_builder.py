@@ -37,11 +37,18 @@ Current Information:
 Building Knowledge:
 {rag_context}
 
-CRITICAL LANGUAGE RULE:
-- You MUST respond in the EXACT SAME LANGUAGE as the user's question
-- If user asks in Japanese, respond ONLY in Japanese using polite form (です・ます体)
-- If user asks in English, respond ONLY in English
-- NEVER mix languages in your response
+CRITICAL LANGUAGE RULE - STRICTLY ENFORCE:
+- ALWAYS respond in the SAME LANGUAGE as the user's question
+- User language detected as: {user_language}
+- If user_language is "en": Respond ONLY in English, no Japanese characters AT ALL
+- If user_language is "ja": Respond ONLY in Japanese using polite form (です・ます体), no English words AT ALL
+- NEVER mix languages or switch languages based on content
+- IGNORE any language cues in the question content - only follow the detected user_language
+
+RESPONSE FORMAT REQUIREMENT:
+- For English (user_language="en"): Use only English alphabet, numbers, and punctuation
+- For Japanese (user_language="ja"): Use only Japanese characters (hiragana, katakana, kanji) and Japanese punctuation
+- VIOLATION OF LANGUAGE RULE IS STRICTLY FORBIDDEN
 
 Guidelines:
 - Give clear, concise directions using landmarks (e.g. "near the north elevator")
@@ -60,16 +67,29 @@ Current Information:
 Web Search Results:
 {search_context}
 
-CRITICAL LANGUAGE RULE:
-- You MUST respond in the EXACT SAME LANGUAGE as the user's question
-- If user asks in Japanese, respond ONLY in Japanese using polite form (です・ます体)
-- If user asks in English, respond ONLY in English
-- NEVER mix languages in your response
+CRITICAL LANGUAGE RULE - STRICTLY ENFORCE:
+- ALWAYS respond in the SAME LANGUAGE as the user's question
+- User language detected as: {user_language}
+- If user_language is "en": Respond ONLY in English, no Japanese characters
+- If user_language is "ja": Respond ONLY in Japanese using polite form (です・ます体), no English words
+- NEVER mix languages or switch languages based on content
+- IGNORE any language cues in the question content - only follow the detected user_language
+
+SEARCH RESPONSE RULES - MANDATORY:
+- FIRST: Check if the web search results above contain relevant information for the user's question
+- If search results contain relevant information: MUST use them to provide a comprehensive answer
+- Extract specific facts, numbers, dates, and details from the search results
+- Synthesize information from multiple search results when available
+- If search results are empty or completely irrelevant: Say "I couldn't find current information about that"
+- NEVER ignore relevant search results - they contain the most current information available
+- ALWAYS prioritize search result information over general knowledge for current events/data
 
 Guidelines:
-- Base your answer on the search results above when relevant
-- If the search results don't contain the answer, say so and share what you know
-- Keep responses concise and factual
+- Base your answer primarily on the search results above when they are relevant
+- Include specific details from the search results (prices, dates, numbers, etc.)
+- Keep responses informative and factual
+- Mention sources when providing specific data or claims
+- If search results are partial, provide what information is available and suggest where to find more
 """
 
 _GENERAL_SYSTEM = """\
@@ -80,11 +100,18 @@ Current Information:
 - Date/Time: {datetime}
 - Kiosk Location: {kiosk_location}
 
-CRITICAL LANGUAGE RULE:
-- You MUST respond in the EXACT SAME LANGUAGE as the user's question
-- If user asks in Japanese, respond ONLY in Japanese using polite form (です・ます体)
-- If user asks in English, respond ONLY in English
-- NEVER mix languages in your response
+CRITICAL LANGUAGE RULE - STRICTLY ENFORCE:
+- ALWAYS respond in the SAME LANGUAGE as the user's question
+- User language detected as: {user_language}
+- If user_language is "en": Respond ONLY in English, no Japanese characters AT ALL
+- If user_language is "ja": Respond ONLY in Japanese using polite form (です・ます体), no English words AT ALL
+- NEVER mix languages or switch languages based on content
+- IGNORE any language cues in the question content - only follow the detected user_language
+
+RESPONSE FORMAT REQUIREMENT:
+- For English (user_language="en"): Use only English alphabet, numbers, and punctuation
+- For Japanese (user_language="ja"): Use only Japanese characters (hiragana, katakana, kanji) and Japanese punctuation
+- VIOLATION OF LANGUAGE RULE IS STRICTLY FORBIDDEN
 
 Guidelines:
 - Be concise, warm, and helpful
@@ -166,6 +193,7 @@ def build_messages(
         kiosk_location=kiosk_meta.get("location", "Unknown"),
         rag_context=context    if context else "(No relevant building information found)",
         search_context=context if context else "(No search results available)",
+        user_language=lang,  # Add explicit language parameter
     )
 
     # Budget: system + user query are fixed; trim history to fit
@@ -182,6 +210,30 @@ def build_messages(
             messages.append({"role": role, "content": content})
 
     messages.append({"role": "user", "content": user_text})
+    
+    # Add explicit language enforcement as a system reminder with examples
+    if lang == "en":
+        messages.append({"role": "system", "content": """CRITICAL: You must respond in English only. Any Japanese characters in your response are strictly forbidden.
+
+EXAMPLE:
+User: "Hello, how can you help me?"
+Assistant: "Hello! I'm here to help you with information about the building, answer questions, and assist with various topics. What would you like to know?"
+
+WRONG RESPONSE (FORBIDDEN): "こんにちは！どのようにお手伝いできますか？"
+CORRECT RESPONSE: "Hello! How can I help you today?"
+
+Remember: ENGLISH ONLY - no Japanese characters allowed."""})
+    elif lang == "ja":
+        messages.append({"role": "system", "content": """重要: 日本語のみで回答してください。英語の使用は厳禁です。
+
+例:
+ユーザー: "こんにちは、どのようにお手伝いできますか？"
+アシスタント: "こんにちは！建物の情報や様々な質問にお答えします。何かお聞きしたいことはありますか？"
+
+間違った回答（禁止）: "Hello! How can I help you?"
+正しい回答: "こんにちは！どのようにお手伝いできますか？"
+
+覚えておいてください：日本語のみ - 英語は使用禁止です。"""})
 
     # Log budget usage
     total_chars = sum(len(m["content"]) for m in messages)

@@ -56,7 +56,7 @@ class TTSRouter:
     
     def get_engine(self, lang: Literal["en", "ja"]):
         """
-        Get TTS engine for language.
+        Get TTS engine for language with improved error handling.
         
         Args:
             lang: Language code ("en" or "ja")
@@ -64,13 +64,19 @@ class TTSRouter:
         Returns:
             TTS engine instance, or None if unavailable
         """
+        logger.info(f"Routing TTS request for language: {lang}")
+        
         if lang == "en":
             # Return CosyVoice2 engine for English
             if self.cosyvoice is not None:
                 logger.info("Routing to CosyVoice2 for English")
                 return self.cosyvoice
             else:
-                logger.warning("CosyVoice2 not available for English TTS")
+                logger.warning("CosyVoice2 not available for English TTS - check service status")
+                # Could fallback to Fish Speech for English if needed
+                if self.fish_speech is not None:
+                    logger.info("Falling back to Fish Speech for English")
+                    return self.fish_speech
                 return None
         else:
             # Return VOICEVOX for Japanese, fall back to Fish Speech
@@ -78,10 +84,10 @@ class TTSRouter:
                 logger.info("Routing to VOICEVOX for Japanese")
                 return self.voicevox
             elif self.fish_speech is not None:
-                logger.warning("VOICEVOX unavailable — falling back to Fish Speech")
+                logger.warning("VOICEVOX unavailable — falling back to Fish Speech for Japanese")
                 return self.fish_speech
             else:
-                logger.warning("No TTS engine available for Japanese")
+                logger.error("No TTS engine available for Japanese")
                 return None
 
 

@@ -61,14 +61,31 @@ class WhisperSTT:
             f"device={device}, compute_type={compute_type}"
         )
         
-        self.model = WhisperModel(
-            model_size,
-            device=device,
-            compute_type=compute_type,
-            num_workers=1
-        )
-        
-        logger.info("WhisperSTT initialized successfully")
+        try:
+            self.model = WhisperModel(
+                model_size,
+                device=device,
+                compute_type=compute_type,
+                num_workers=1
+            )
+            logger.info("WhisperSTT initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize Whisper model: {e}")
+            if device == "cuda":
+                logger.info("Falling back to CPU...")
+                try:
+                    self.model = WhisperModel(
+                        model_size,
+                        device="cpu",
+                        compute_type="int8",
+                        num_workers=1
+                    )
+                    logger.info("WhisperSTT initialized on CPU")
+                except Exception as e2:
+                    logger.error(f"CPU fallback failed: {e2}")
+                    raise RuntimeError(f"Cannot initialize Whisper: {e2}")
+            else:
+                raise RuntimeError(f"Cannot initialize Whisper: {e}")
     
     async def transcribe(self, audio_bytes: bytes) -> TranscriptionResult:
         """

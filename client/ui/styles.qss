@@ -127,6 +127,27 @@ QPushButton#speakButton:disabled {
     color: #585b70;
 }
 
+/* ── Stop button ───────────────────────────────────────────── */
+QPushButton#stopButton {
+    background-color: #f9e2af;
+    color: #1e1e2e;
+    font-size: 15px;
+    padding: 6px 16px;
+}
+
+QPushButton#stopButton:hover {
+    background-color: #fce8b8;
+}
+
+QPushButton#stopButton:pressed {
+    background-color: #f7dc9f;
+}
+
+QPushButton#stopButton:disabled {
+    background-color: #313244;
+    color: #585b70;
+}
+
 
 QPushButton#toggleOnButton {
     background-color: #a6e3a1;

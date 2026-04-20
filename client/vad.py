@@ -30,10 +30,10 @@ class SileroVAD:
     
     def __init__(
         self,
-        threshold: float = 0.5,
+        threshold: float = 0.3,  # Lowered from 0.5 for better sensitivity
         sampling_rate: int = 16000,
-        min_speech_duration_ms: int = 250,
-        min_silence_duration_ms: int = 500
+        min_speech_duration_ms: int = 200,  # Lowered from 250ms
+        min_silence_duration_ms: int = 800  # Increased from 500ms for better end detection
     ):
         """
         Initialize Silero VAD.
@@ -45,12 +45,29 @@ class SileroVAD:
             min_silence_duration_ms: Minimum silence duration (500ms)
         """
         # Load Silero VAD model (CPU)
-        self.model, utils = torch.hub.load(
-            repo_or_dir='snakers4/silero-vad',
-            model='silero_vad',
-            force_reload=False,
-            onnx=False
-        )
+        try:
+            self.model, utils = torch.hub.load(
+                repo_or_dir='snakers4/silero-vad',
+                model='silero_vad',
+                force_reload=False,
+                onnx=False
+            )
+            logger.info("Silero VAD model loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load Silero VAD model: {e}")
+            logger.info("Attempting to download model...")
+            try:
+                # Force download if loading fails
+                self.model, utils = torch.hub.load(
+                    repo_or_dir='snakers4/silero-vad',
+                    model='silero_vad',
+                    force_reload=True,
+                    onnx=False
+                )
+                logger.info("Silero VAD model downloaded and loaded")
+            except Exception as e2:
+                logger.error(f"Failed to download VAD model: {e2}")
+                raise RuntimeError(f"Cannot initialize VAD: {e2}")
         
         self.threshold = threshold
         self.sampling_rate = sampling_rate
@@ -94,6 +111,15 @@ class SileroVAD:
         
         is_speech = speech_prob > self.threshold
         
+        # Debug logging every 50 frames (about 1 second)
+        if hasattr(self, '_debug_counter'):
+            self._debug_counter += 1
+        else:
+            self._debug_counter = 1
+            
+        if self._debug_counter % 50 == 0:
+            logger.debug(f"VAD: prob={speech_prob:.3f}, threshold={self.threshold}, is_speech={is_speech}, speaking={self.is_speaking}")
+        
         if is_speech:
             self.speech_counter += len(frame.data) // 2  # samples
             self.silence_counter = 0
@@ -102,7 +128,7 @@ class SileroVAD:
                 # Speech start detected
                 self.is_speaking = True
                 self.speech_buffer = bytearray(frame.data)
-                logger.debug("Speech start detected")
+                logger.info("Speech start detected")
                 return VADEvent(
                     event_type="speech_start",
                     timestamp_ms=frame.timestamp_ms
@@ -130,7 +156,7 @@ class SileroVAD:
                 audio_buffer = bytes(self.speech_buffer)
                 self.speech_buffer = bytearray()
                 
-                logger.debug(f"Speech end detected ({len(audio_buffer)} bytes)")
+                logger.info(f"Speech end detected ({len(audio_buffer)} bytes)")
                 return VADEvent(
                     event_type="speech_end",
                     audio_buffer=audio_buffer,

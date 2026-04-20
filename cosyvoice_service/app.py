@@ -47,21 +47,19 @@ async def lifespan(app: FastAPI):
     if cosyvoice_path not in sys.path:
         sys.path.insert(0, cosyvoice_path)
     
+    # Add Matcha-TTS to path
+    matcha_path = os.path.join(cosyvoice_path, "third_party", "Matcha-TTS")
+    if matcha_path not in sys.path:
+        sys.path.insert(0, matcha_path)
+    
     model_path = os.getenv("COSYVOICE_MODEL_PATH", "iic/CosyVoice2-0.5B")
     device = os.getenv("COSYVOICE_DEVICE", "cuda")
     
     logger.info(f"Loading CosyVoice2 model: {model_path} on {device}")
     
     try:
-        from cosyvoice.cli.cosyvoice import CosyVoice2
-        cosyvoice_model = CosyVoice2(
-            model_path,
-            load_jit=False,
-            load_trt=False,
-            load_vllm=False,
-            fp16=False,
-            trt_concurrent=1
-        )
+        from cosyvoice.cli.cosyvoice import AutoModel
+        cosyvoice_model = AutoModel(model_dir=model_path)
         logger.info("CosyVoice2 model loaded successfully")
     except Exception as e:
         logger.error(f"Failed to load CosyVoice2 model: {e}", exc_info=True)
@@ -104,6 +102,24 @@ async def health_check():
     }
 
 
+@app.get("/speakers")
+async def list_speakers():
+    """List available speaker IDs."""
+    if cosyvoice_model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    
+    try:
+        available_speakers = list(cosyvoice_model.frontend.spk2info.keys())
+        return {
+            "speakers": available_speakers,
+            "default": available_speakers[0] if available_speakers else None,
+            "count": len(available_speakers)
+        }
+    except Exception as e:
+        logger.error(f"Error listing speakers: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list speakers: {str(e)}")
+
+
 @app.post("/synthesize")
 async def synthesize(request: SynthesisRequest):
     """
@@ -120,8 +136,24 @@ async def synthesize(request: SynthesisRequest):
     try:
         logger.info(f"Synthesizing: {request.text[:50]}...")
         
-        # Synthesize audio
-        output = cosyvoice_model.inference_sft(request.text, stream=False)
+        # Use zero-shot inference with a simple English prompt
+        prompt_text = "Hello, this is a natural English voice."
+        
+        # Create a simple audio prompt (1 second of silence with slight noise)
+        import numpy as np
+        sample_rate = 22050
+        duration = 1.0
+        # Create a very quiet noise instead of pure silence
+        
+        prompt_wav, sr = sf.read("prompt.wav", dtype="float32")
+        
+        logger.debug("Starting zero-shot inference")
+        output = cosyvoice_model.inference_zero_shot(
+            request.text, 
+            prompt_text, 
+            prompt_wav, 
+            stream=False
+        )
         
         # Extract audio from generator
         audio_data = None

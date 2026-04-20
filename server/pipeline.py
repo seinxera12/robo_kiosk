@@ -335,11 +335,24 @@ class VoicePipeline:
                             base_url=self.config.searxng_url,
                             n_results=3,
                         )
+                        logger.info(f"Search returned {len(results)} results for query: '{transcript.text}'")
+                        
+                        # Log detailed search results
+                        for i, result in enumerate(results):
+                            title = result.get('title', 'No title')
+                            content = result.get('content', 'No content')
+                            url = result.get('url', 'No URL')
+                            logger.info(f"Search result {i+1}:")
+                            logger.info(f"  Title: {title}")
+                            logger.info(f"  Content: {content[:300]}{'...' if len(content) > 300 else ''}")
+                            logger.info(f"  URL: {url}")
+                        
                         context = format_search_context(results)
                         if context:
-                            logger.info(f"Search context: {len(results)} results")
+                            logger.info(f"Formatted search context: {len(context)} characters")
+                            logger.info(f"Search context content:\n{context}")
                         else:
-                            logger.warning("Search returned no results — falling back to GENERAL")
+                            logger.warning("Search returned no usable results — falling back to GENERAL")
                             intent = Intent.GENERAL
                     except Exception as e:
                         logger.warning(f"Search failed ({e}) — falling back to GENERAL")
@@ -361,6 +374,16 @@ class VoicePipeline:
                 )
 
                 logger.info(f"Prompt built: intent={intent.value}, messages={len(messages)}")
+                
+                # Log the final prompt for debugging
+                logger.info("=== FINAL PROMPT TO LLM ===")
+                for i, msg in enumerate(messages):
+                    role = msg.get('role', 'unknown')
+                    content = msg.get('content', '')
+                    logger.info(f"Message {i+1} ({role}):")
+                    logger.info(f"{content}")
+                    logger.info("---")
+                logger.info("=== END PROMPT ===")
                 
                 # Stream LLM response with fallback — collect full response for history
                 full_response = ""
@@ -473,15 +496,20 @@ class VoicePipeline:
                 
                 logger.debug(f"Complete sentence detected: {buffer[:50]}...")
                 
-                # Get TTS engine for current language
+                # Get TTS engine for current language with better detection
                 current_lang = "en"  # fallback default
                 if self.state.current_turn and "lang" in self.state.current_turn:
                     current_lang = self.state.current_turn["lang"]
                 else:
-                    # If no language is set, try to detect from the buffer text
+                    # If no language is set, detect from the buffer text
                     from server.lang.detector import detect_language
                     current_lang = detect_language(buffer)
                     logger.debug(f"No language set, detected from text: {current_lang}")
+                
+                # Ensure we only use supported languages
+                if current_lang not in ["en", "ja"]:
+                    logger.warning(f"Unsupported language '{current_lang}', defaulting to English")
+                    current_lang = "en"
                 
                 logger.info(f"TTS synthesis for language: {current_lang}")
                 tts_engine = self.tts_router.get_engine(lang=current_lang)

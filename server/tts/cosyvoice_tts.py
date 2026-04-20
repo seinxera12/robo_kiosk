@@ -40,7 +40,15 @@ class CosyVoiceTTS:
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.get(f"{self.base_url}/health", timeout=5.0)
-                return resp.status_code == 200
+                if resp.status_code == 200:
+                    logger.debug("CosyVoice service health check passed")
+                    return True
+                else:
+                    logger.warning(f"CosyVoice service health check failed: HTTP {resp.status_code}")
+                    return False
+        except httpx.TimeoutException:
+            logger.warning("CosyVoice health check timed out")
+            return False
         except Exception as e:
             logger.warning(f"CosyVoice health check failed: {e}")
             return False
