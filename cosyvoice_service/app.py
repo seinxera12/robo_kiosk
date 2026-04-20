@@ -7,6 +7,7 @@ Compatible with the voice kiosk chatbot server.
 
 import io
 import logging
+from contextlib import asynccontextmanager
 from typing import Optional
 
 import numpy as np
@@ -33,19 +34,19 @@ class SynthesisRequest(BaseModel):
     speed: Optional[float] = 1.0
 
 
-app = FastAPI(
-    title="CosyVoice2 TTS Service",
-    description="REST API for CosyVoice2-0.5B English TTS",
-    version="1.0.0"
-)
-
-
-@app.on_event("startup")
-async def load_model():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     """Load CosyVoice2 model on startup."""
     global cosyvoice_model
     
     import os
+    import sys
+    
+    # Add cosyvoice_repo to Python path
+    cosyvoice_path = os.path.join(os.path.dirname(__file__), "cosyvoice_repo")
+    if cosyvoice_path not in sys.path:
+        sys.path.insert(0, cosyvoice_path)
+    
     model_path = os.getenv("COSYVOICE_MODEL_PATH", "iic/CosyVoice2-0.5B")
     device = os.getenv("COSYVOICE_DEVICE", "cuda")
     
@@ -56,13 +57,28 @@ async def load_model():
         cosyvoice_model = CosyVoice2(
             model_path,
             load_jit=False,
-            load_onnx=False,
-            device=device
+            load_trt=False,
+            load_vllm=False,
+            fp16=False,
+            trt_concurrent=1
         )
         logger.info("CosyVoice2 model loaded successfully")
     except Exception as e:
         logger.error(f"Failed to load CosyVoice2 model: {e}", exc_info=True)
         raise
+    
+    yield
+    
+    # Cleanup (if needed)
+    cosyvoice_model = None
+
+
+app = FastAPI(
+    title="CosyVoice2 TTS Service",
+    description="REST API for CosyVoice2-0.5B English TTS",
+    version="1.0.0",
+    lifespan=lifespan
+)
 
 
 @app.get("/")

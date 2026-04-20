@@ -1,0 +1,6 @@
+# Minimal requirements for CosyVoice2 TTS Service
+fastapi
+uvicorn[standard]
+numpy
+soundfile
+pydantic

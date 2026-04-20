@@ -7,16 +7,23 @@ echo "Starting CosyVoice2 TTS Service..."
 
 # Check if virtual environment exists
 if [ ! -d "venv" ]; then
-    echo "❌ Virtual environment not found. Run setup.sh first."
+    echo "❌ Virtual environment not found. Run setup first."
     exit 1
 fi
 
 # Activate virtual environment
 source venv/bin/activate
 
-# Check if CosyVoice is installed
-if ! python -c "from cosyvoice.cli.cosyvoice import CosyVoice2" 2>/dev/null; then
-    echo "❌ CosyVoice not installed. Run setup.sh first."
+# Add cosyvoice_repo to Python path
+export PYTHONPATH="${PYTHONPATH}:$(pwd)/cosyvoice_repo"
+
+# Check if CosyVoice is accessible
+if ! python -c "
+import sys
+sys.path.insert(0, 'cosyvoice_repo')
+from cosyvoice.cli.cosyvoice import CosyVoice2
+" 2>/dev/null; then
+    echo "❌ CosyVoice not accessible. Check setup."
     exit 1
 fi
 
