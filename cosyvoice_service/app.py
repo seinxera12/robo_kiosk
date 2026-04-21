@@ -139,19 +139,17 @@ async def synthesize(request: SynthesisRequest):
         # Use zero-shot inference with a simple English prompt
         prompt_text = "Hello, this is a natural English voice."
         
-        # Create a simple audio prompt (1 second of silence with slight noise)
-        import numpy as np
-        sample_rate = 22050
-        duration = 1.0
-        # Create a very quiet noise instead of pure silence
-        
-        prompt_wav, sr = sf.read("prompt.wav", dtype="float32")
+        # Use the official zero-shot prompt from CosyVoice assets
+        # CosyVoice inference_zero_shot expects file path, not numpy array
+        import os
+        cosyvoice_path = os.path.join(os.path.dirname(__file__), "cosyvoice_repo")
+        prompt_wav_path = os.path.join(cosyvoice_path, "asset", "zero_shot_prompt.wav")
         
         logger.debug("Starting zero-shot inference")
         output = cosyvoice_model.inference_zero_shot(
             request.text, 
             prompt_text, 
-            prompt_wav, 
+            prompt_wav_path, 
             stream=False
         )
         
