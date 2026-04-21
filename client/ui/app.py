@@ -153,44 +153,49 @@ class PipelineWorker(QObject):
                     if self._frame_counter % 100 == 0:
                         logger.debug(f"Audio capture active: frame {self._frame_counter}, manual_speak={self._manual_speak_active}, listening={self.listening_enabled}")
 
-                    # Gate: only process if always-listen ON or manual speak active
-                    should_process = self.listening_enabled or self._manual_speak_active
-                    if not should_process:
-                        continue
-
+                    # Always feed frames to VAD to keep its internal state warm.
+                    # Silero VAD is stateful — skipping frames causes the model to
+                    # go cold and miss the first ~200ms of speech when processing resumes.
                     try:
                         event = self._vad.process_frame(frame)
-                        if event is None:
-                            continue
-
-                        logger.debug(f"VAD event: {event.event_type}")
-
-                        if event.event_type == "speech_start":
-                            self.mic_active.emit(True)
-                            self.status_changed.emit("recording")
-
-                        elif event.event_type == "speech_end" and event.audio_buffer:
-                            self.mic_active.emit(False)
-                            self.status_changed.emit("transcribing")
-                            logger.info(f"Sending {len(event.audio_buffer)} bytes of audio to server")
-                            # If manual speak, auto-deactivate after EOS
-                            if self._manual_speak_active:
-                                self._manual_speak_active = False
-                                # Clean up timeout timer
-                                if self._manual_speak_timer:
-                                    self._manual_speak_timer.stop()
-                                    self._manual_speak_timer = None
-                                self.manual_speak_done.emit()
-                            
-                            try:
-                                await self._ws.send_audio(event.audio_buffer)
-                            except Exception as e:
-                                logger.error(f"Failed to send audio: {e}")
-                                self.error_occurred.emit(f"Audio transmission failed: {e}")
-                                
                     except Exception as e:
                         logger.warning(f"VAD processing error: {e}")
                         continue
+
+                    # Gate: only act on events when listening is enabled
+                    should_process = self.listening_enabled or self._manual_speak_active
+                    if not should_process or event is None:
+                        continue
+
+                    logger.debug(f"VAD event: {event.event_type}")
+
+                    if event.event_type == "speech_start":
+                        self.mic_active.emit(True)
+                        self.status_changed.emit("recording")
+
+                    elif event.event_type == "speech_end" and event.audio_buffer:
+                        self.mic_active.emit(False)
+                        self.status_changed.emit("transcribing")
+                        logger.info(f"Sending {len(event.audio_buffer)} bytes of audio to server")
+                        # If manual speak, auto-deactivate after EOS
+                        if self._manual_speak_active:
+                            self._manual_speak_active = False
+                            # Clean up timeout timer
+                            if self._manual_speak_timer:
+                                self._manual_speak_timer.stop()
+                                self._manual_speak_timer = None
+
+                        try:
+                            await self._ws.send_audio(event.audio_buffer)
+                            # STT-BUG-005: emit done only after successful send
+                            # so the UI doesn't reset before audio is delivered
+                            self.manual_speak_done.emit()
+                        except Exception as e:
+                            logger.error(f"Failed to send audio: {e}")
+                            self.error_occurred.emit(f"Audio transmission failed: {e}")
+                            # Still reset the UI even on failure so the button
+                            # doesn't stay stuck in recording state
+                            self.manual_speak_done.emit()
                         
                 # If we reach here, the stream ended normally
                 break
@@ -212,14 +217,15 @@ class PipelineWorker(QObject):
                     logger.error("Audio capture failed permanently")
                     self.error_occurred.emit("Microphone unavailable - please check your audio settings")
 
-    # Extra signal for manual speak done
-    manual_speak_done = pyqtSignal()
-
     def start_manual_speak(self):
         """Called when Speak button is pressed."""
         logger.info("start_manual_speak called")
         if self._loop:
             self._manual_speak_active = True
+            # STT-BUG-003: reset VAD state so stale counters from a previous
+            # (possibly cancelled) session don't cause an immediate false speech_start
+            if hasattr(self, '_vad') and self._vad:
+                self._vad.reset()
             logger.info("Manual speak activated")
             # Stop any ongoing TTS playback (barge-in)
             if self._playback:

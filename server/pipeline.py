@@ -233,7 +233,18 @@ class VoicePipeline:
                 # Get audio bytes from queue
                 audio_bytes = await self.state.audio_input.get()
                 logger.debug(f"Received audio bytes: {len(audio_bytes)} bytes")
-                
+
+                # STT-BUG-004: guard against very short audio that causes Whisper
+                # to return empty or hallucinated text, wasting an LLM call.
+                # 16000 bytes = 8000 samples = 0.5s at 16kHz PCM16.
+                MIN_AUDIO_BYTES = 16000
+                if len(audio_bytes) < MIN_AUDIO_BYTES:
+                    logger.warning(
+                        f"Audio too short ({len(audio_bytes)} bytes), skipping STT"
+                    )
+                    self.state.audio_input.task_done()
+                    continue
+
                 # Transcribe audio using STT
                 result = await self.stt.transcribe(audio_bytes)
 

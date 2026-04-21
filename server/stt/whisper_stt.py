@@ -117,7 +117,16 @@ class WhisperSTT:
         # Convert bytes to numpy array
         audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
         audio_float = audio_np.astype(np.float32) / 32768.0
-        
+
+        # STT-BUG-004: secondary guard — if somehow a short clip reaches here,
+        # return an empty result rather than letting Whisper hallucinate.
+        # 8000 samples = 0.5s at 16kHz.
+        if len(audio_float) < 8000:
+            logger.warning(
+                f"Audio too short for transcription: {len(audio_float)} samples"
+            )
+            return TranscriptionResult(text="", language="en", confidence=0.0, duration_ms=0)
+
         # Run transcription in thread pool to avoid blocking event loop
         loop = asyncio.get_event_loop()
         segments, info = await loop.run_in_executor(

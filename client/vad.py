@@ -81,6 +81,20 @@ class SileroVAD:
         
         logger.info(f"Initialized Silero VAD with threshold={threshold}")
     
+    def reset(self):
+        """
+        Reset VAD state between manual speak sessions.
+
+        Called before each new Speak press so that stale counters from a
+        previous (possibly cancelled) session don't cause an immediate false
+        speech_start on the next activation.
+        """
+        self.is_speaking = False
+        self.speech_buffer = bytearray()
+        self.silence_counter = 0
+        self.speech_counter = 0
+        logger.debug("VAD state reset")
+
     def process_frame(self, frame) -> Optional[VADEvent]:
         """
         Process 20ms audio frame through VAD.
