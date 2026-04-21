@@ -454,7 +454,6 @@ class VoicePipeline:
         logger.info("tts_worker started")
         
         SENTENCE_ENDINGS = frozenset('.?!。？！…')
-        MIN_SENTENCE_LENGTH = 8
         
         while True:
             try:
@@ -463,33 +462,57 @@ class VoicePipeline:
                     await asyncio.sleep(0.1)
                     continue
                 
-                # Collect tokens until sentence boundary
+                # Determine current language for language-aware sentence detection
+                current_lang = "en"
+                if self.state.current_turn and "lang" in self.state.current_turn:
+                    current_lang = self.state.current_turn["lang"]
+                
+                # Use shorter minimum for Japanese (2 chars) vs English (8 chars)
+                min_sentence_length = 2 if current_lang == "ja" else 8
+                
+                # Collect tokens until sentence boundary.
+                # Drain already-queued tokens first (non-blocking) to avoid
+                # accumulating a huge backlog into one chunk while TTS is busy.
                 buffer = ""
                 sentence_complete = False
-                
+
                 while not sentence_complete:
+                    # Drain whatever is already queued without blocking
+                    while not self.state.token.empty():
+                        try:
+                            token = self.state.token.get_nowait()
+                            self.state.token.task_done()
+                            buffer += token
+                            if (buffer and
+                                    buffer[-1] in SENTENCE_ENDINGS and
+                                    len(buffer) >= min_sentence_length):
+                                sentence_complete = True
+                                break
+                        except asyncio.QueueEmpty:
+                            break
+
+                    if sentence_complete:
+                        break
+
+                    # Wait briefly for the next token
                     try:
-                        # Wait for token with timeout to check for end of stream
                         token = await asyncio.wait_for(
                             self.state.token.get(),
-                            timeout=0.5
+                            timeout=0.3
                         )
                         self.state.token.task_done()
                         buffer += token
-                        
-                        # Check for sentence boundary
-                        if (buffer and 
-                            buffer[-1] in SENTENCE_ENDINGS and 
-                            len(buffer) >= MIN_SENTENCE_LENGTH):
+
+                        if (buffer and
+                                buffer[-1] in SENTENCE_ENDINGS and
+                                len(buffer) >= min_sentence_length):
                             sentence_complete = True
-                            
+
                     except asyncio.TimeoutError:
-                        # No more tokens — flush remaining buffer if any
+                        # No new tokens — flush whatever we have
                         if buffer.strip():
                             sentence_complete = True
-                        else:
-                            # No buffer, continue waiting
-                            continue
+                        # else keep waiting
                 
                 if not buffer.strip():
                     continue
@@ -497,7 +520,6 @@ class VoicePipeline:
                 logger.debug(f"Complete sentence detected: {buffer[:50]}...")
                 
                 # Get TTS engine for current language with better detection
-                current_lang = "en"  # fallback default
                 if self.state.current_turn and "lang" in self.state.current_turn:
                     current_lang = self.state.current_turn["lang"]
                 else:

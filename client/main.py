@@ -40,10 +40,12 @@ async def run_headless(config) -> None:
     from client.ws_client import WebSocketClient
     from client.audio_capture import AudioCapture
     from client.vad import SileroVAD
+    from client.audio_playback import AudioPlayback
 
     ws = WebSocketClient(config.server_ws_url)
     audio_capture = AudioCapture()
     vad = SileroVAD()
+    playback = AudioPlayback()
 
     logger.info("Connecting to server...")
     await ws.connect()
@@ -57,9 +59,13 @@ async def run_headless(config) -> None:
     print("\n[Headless mode] Speak into your microphone. Press Ctrl+C to quit.\n")
 
     async def receive_loop():
-        """Print server responses to terminal."""
+        """Print server responses to terminal and play audio."""
         response_buffer = ""
         async for msg in ws.receive():
+            if isinstance(msg, bytes):
+                # Handle binary audio frames
+                playback.queue_audio(msg)
+                continue
             if isinstance(msg, dict):
                 msg_type = msg.get("type")
                 if msg_type == "llm_text_chunk":
@@ -75,7 +81,6 @@ async def run_headless(config) -> None:
                     logger.info("Server ready")
                 elif msg_type == "status":
                     logger.info(f"Server status: {msg.get('state')}")
-                # binary audio chunks are ignored in headless mode (no playback)
 
     async def capture_loop():
         """Capture mic → VAD → send speech to server."""

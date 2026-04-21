@@ -5,16 +5,18 @@ Provides a simple REST API for English text-to-speech synthesis.
 Compatible with the voice kiosk chatbot server.
 """
 
+import asyncio
 import io
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import soundfile as sf
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 logging.basicConfig(
@@ -23,8 +25,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Global model instance
+# Global model instance and thread pool for blocking inference
 cosyvoice_model = None
+_executor = ThreadPoolExecutor(max_workers=1)  # single worker — model is not thread-safe
 
 
 class SynthesisRequest(BaseModel):
@@ -53,9 +56,8 @@ async def lifespan(app: FastAPI):
         sys.path.insert(0, matcha_path)
     
     model_path = os.getenv("COSYVOICE_MODEL_PATH", "iic/CosyVoice2-0.5B")
-    device = os.getenv("COSYVOICE_DEVICE", "cuda")
     
-    logger.info(f"Loading CosyVoice2 model: {model_path} on {device}")
+    logger.info(f"Loading CosyVoice2 model: {model_path}")
     
     try:
         from cosyvoice.cli.cosyvoice import AutoModel
@@ -65,10 +67,19 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to load CosyVoice2 model: {e}", exc_info=True)
         raise
     
+    # Resolve cross_lingual prompt wav path
+    cross_lingual_wav = os.path.join(cosyvoice_path, "asset", "cross_lingual_prompt.wav")
+    if not os.path.exists(cross_lingual_wav):
+        logger.error(f"cross_lingual_prompt.wav not found at {cross_lingual_wav}")
+    else:
+        logger.info(f"Using cross-lingual prompt wav: {cross_lingual_wav}")
+    
+    app.state.cross_lingual_wav = cross_lingual_wav
+    
     yield
     
-    # Cleanup (if needed)
     cosyvoice_model = None
+    _executor.shutdown(wait=False)
 
 
 app = FastAPI(
@@ -123,9 +134,12 @@ async def list_speakers():
 @app.post("/synthesize")
 async def synthesize(request: SynthesisRequest):
     """
-    Synthesize speech from text.
+    Synthesize speech from text. Streams WAV audio as it is generated.
     
-    Returns WAV audio bytes.
+    Uses inference_cross_lingual with <|en|> language tag — forces English
+    phoneme generation regardless of the prompt speaker's native language.
+    Response is streamed so the client can begin playback before synthesis
+    is fully complete.
     """
     if cosyvoice_model is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
@@ -133,59 +147,67 @@ async def synthesize(request: SynthesisRequest):
     if not request.text or not request.text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty")
     
-    try:
-        logger.info(f"Synthesizing: {request.text[:50]}...")
-        
-        # Use zero-shot inference with a simple English prompt
-        prompt_text = "Hello, this is a natural English voice."
-        
-        # Use the official zero-shot prompt from CosyVoice assets
-        # CosyVoice inference_zero_shot expects file path, not numpy array
-        import os
-        cosyvoice_path = os.path.join(os.path.dirname(__file__), "cosyvoice_repo")
-        prompt_wav_path = os.path.join(cosyvoice_path, "asset", "zero_shot_prompt.wav")
-        
-        logger.debug("Starting zero-shot inference")
-        output = cosyvoice_model.inference_zero_shot(
-            request.text, 
-            prompt_text, 
-            prompt_wav_path, 
-            stream=False
-        )
-        
-        # Extract audio from generator
-        audio_data = None
-        for audio_chunk in output:
-            if isinstance(audio_chunk, dict) and 'tts_speech' in audio_chunk:
-                audio_data = audio_chunk['tts_speech']
-                # Convert to numpy if tensor
-                if hasattr(audio_data, 'cpu'):
-                    audio_data = audio_data.cpu().numpy()
+    cross_lingual_wav = app.state.cross_lingual_wav
+    if not cross_lingual_wav or not __import__('os').path.exists(cross_lingual_wav):
+        raise HTTPException(status_code=503, detail="Prompt wav not available")
+    
+    tagged_text = f"<|en|>{request.text}"
+    prompt_wav = cross_lingual_wav
+    speed = request.speed
+
+    logger.info(f"Synthesizing: {request.text[:50]}...")
+
+    async def generate():
+        """Run synthesis in thread pool and stream WAV chunks as they arrive."""
+        loop = asyncio.get_event_loop()
+        # Queue for passing audio chunks from the thread to this async generator
+        chunk_queue: asyncio.Queue = asyncio.Queue()
+
+        def _run_synthesis():
+            """Blocking synthesis — runs in thread executor."""
+            try:
+                output = cosyvoice_model.inference_cross_lingual(
+                    tts_text=tagged_text,
+                    prompt_wav=prompt_wav,
+                    stream=False,
+                    speed=speed
+                )
+                for audio_chunk in output:
+                    if isinstance(audio_chunk, dict) and 'tts_speech' in audio_chunk:
+                        data = audio_chunk['tts_speech']
+                        if hasattr(data, 'cpu'):
+                            data = data.cpu().numpy()
+                        wav_bytes = audio_to_wav(data, sample_rate=24000)
+                        # Thread-safe put into asyncio queue
+                        loop.call_soon_threadsafe(chunk_queue.put_nowait, wav_bytes)
+                    elif isinstance(audio_chunk, np.ndarray):
+                        wav_bytes = audio_to_wav(audio_chunk, sample_rate=24000)
+                        loop.call_soon_threadsafe(chunk_queue.put_nowait, wav_bytes)
+            except Exception as e:
+                logger.error(f"Synthesis thread error: {e}", exc_info=True)
+            finally:
+                # Signal completion
+                loop.call_soon_threadsafe(chunk_queue.put_nowait, None)
+
+        # Start synthesis in background thread
+        asyncio.get_event_loop().run_in_executor(_executor, _run_synthesis)
+
+        # Yield chunks as they arrive from the synthesis thread
+        total_bytes = 0
+        while True:
+            chunk = await chunk_queue.get()
+            if chunk is None:
                 break
-            elif isinstance(audio_chunk, np.ndarray):
-                audio_data = audio_chunk
-                break
-        
-        if audio_data is None:
-            raise HTTPException(status_code=500, detail="Synthesis failed: no audio generated")
-        
-        # Convert to WAV bytes
-        wav_bytes = audio_to_wav(audio_data, sample_rate=22050)
-        
-        logger.info(f"Synthesis complete: {len(wav_bytes)} bytes")
-        
-        # Return WAV audio
-        return Response(
-            content=wav_bytes,
-            media_type="audio/wav",
-            headers={
-                "Content-Disposition": "inline; filename=speech.wav"
-            }
-        )
-        
-    except Exception as e:
-        logger.error(f"Synthesis error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Synthesis failed: {str(e)}")
+            total_bytes += len(chunk)
+            yield chunk
+
+        logger.info(f"Synthesis complete: {total_bytes} bytes streamed")
+
+    return StreamingResponse(
+        generate(),
+        media_type="audio/wav",
+        headers={"Content-Disposition": "inline; filename=speech.wav"}
+    )
 
 
 def audio_to_wav(audio_data: np.ndarray, sample_rate: int = 22050) -> bytes:

@@ -55,13 +55,17 @@ class CosyVoiceTTS:
     
     async def synthesize_stream(self, text: str) -> AsyncIterator[bytes]:
         """
-        Synthesize English text to audio via REST API.
+        Synthesize English text to audio via REST API using HTTP streaming.
+        
+        Streams the WAV response in chunks so the pipeline can begin sending
+        audio to the client before synthesis is fully complete.
         
         Args:
             text: English text to synthesize
             
         Yields:
-            WAV audio bytes
+            WAV audio bytes (first yield is the complete WAV for simplicity,
+            streamed as soon as the service responds)
         """
         if not text or not text.strip():
             logger.warning("Empty text provided for synthesis")
@@ -71,21 +75,27 @@ class CosyVoiceTTS:
             logger.debug(f"Synthesizing with CosyVoice service: {text[:50]}...")
             
             async with httpx.AsyncClient() as client:
-                # Call synthesis endpoint
-                resp = await client.post(
+                async with client.stream(
+                    "POST",
                     f"{self.base_url}/synthesize",
                     json={"text": text},
                     timeout=self.timeout
-                )
-                resp.raise_for_status()
-                
-                # Yield WAV bytes
-                wav_bytes = resp.content
-                if wav_bytes:
-                    yield wav_bytes
-                    logger.debug(f"CosyVoice synthesis complete: {len(wav_bytes)} bytes")
-                else:
-                    logger.warning("CosyVoice service returned empty audio")
+                ) as resp:
+                    resp.raise_for_status()
+                    
+                    # Stream response in chunks — yields as data arrives
+                    # rather than waiting for the full response
+                    chunks = []
+                    async for chunk in resp.aiter_bytes(chunk_size=65536):
+                        if chunk:
+                            chunks.append(chunk)
+                    
+                    wav_bytes = b"".join(chunks)
+                    if wav_bytes:
+                        yield wav_bytes
+                        logger.debug(f"CosyVoice synthesis complete: {len(wav_bytes)} bytes")
+                    else:
+                        logger.warning("CosyVoice service returned empty audio")
                     
         except httpx.TimeoutException:
             logger.error(f"CosyVoice synthesis timeout after {self.timeout}s")

@@ -76,22 +76,22 @@ class VoicevoxTTS:
             - Audio matches input text
         """
         async with httpx.AsyncClient() as client:
-            # Step 1: Create audio query
+            # Step 1: Create audio query (increased timeout for longer sentences)
             query_resp = await client.post(
                 f"{self.base_url}/audio_query",
                 params={"text": text, "speaker": self.speaker},
-                timeout=5.0
+                timeout=10.0
             )
             query_resp.raise_for_status()
             audio_query = query_resp.json()
             
-            # Step 2: Synthesize audio
+            # Step 2: Synthesize audio (increased timeout for longer sentences)
             synthesis_resp = await client.post(
                 f"{self.base_url}/synthesis",
                 params={"speaker": self.speaker},
                 content=json.dumps(audio_query),
                 headers={"Content-Type": "application/json"},
-                timeout=10.0
+                timeout=30.0
             )
             synthesis_resp.raise_for_status()
             
