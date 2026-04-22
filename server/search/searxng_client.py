@@ -15,7 +15,8 @@ async def searxng_search(
     query: str,
     base_url: str = "http://searxng:8080",
     n_results: int = 3,
-    timeout: float = 8.0
+    timeout: float = 8.0,
+    lang: str = "en",
 ) -> List[Dict[str, str]]:
     """
     Search the web using SearXNG (async, non-blocking).
@@ -25,11 +26,16 @@ async def searxng_search(
         base_url:  SearXNG service base URL
         n_results: Number of results to return
         timeout:   Total request timeout in seconds (default 8s)
+        lang:      Language code for search results ("en" or "ja")
 
     Returns:
         List of search results with 'title', 'content', 'url' keys.
         Returns empty list on any failure — caller handles fallback.
     """
+    # Map internal language codes to SearXNG language codes
+    _LANG_MAP = {"ja": "ja-JP", "en": "en-US"}
+    searxng_lang = _LANG_MAP.get(lang, "auto")
+
     try:
         # Separate connect vs read timeouts to avoid blocking on slow DNS
         limits  = httpx.Limits(max_connections=5, max_keepalive_connections=2)
@@ -41,7 +47,7 @@ async def searxng_search(
                 params={
                     "q": query,
                     "format": "json",
-                    "language": "auto",
+                    "language": searxng_lang,
                 },
             )
             response.raise_for_status()

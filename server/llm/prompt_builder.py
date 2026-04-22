@@ -201,7 +201,24 @@ def build_messages(
     history_budget = _MAX_INPUT_CHARS - fixed_chars
     trimmed_history = _trim_history(list(history), history_budget)
 
-    messages: list[dict] = [{"role": "system", "content": system_content}]
+    # Append language enforcement directly to the system message so it is
+    # never ignored.  A second "system" role message is silently dropped by
+    # most OpenAI-compatible backends (vLLM, Ollama), which is why the
+    # language instruction was being lost.
+    if lang == "ja":
+        lang_reminder = (
+            "\n\n---\n"
+            "【絶対ルール】必ず日本語のみで回答してください。英語は一切使用禁止です。\n"
+            "回答は日本語（ひらがな・カタカナ・漢字）のみで書いてください。"
+        )
+    else:
+        lang_reminder = (
+            "\n\n---\n"
+            "ABSOLUTE RULE: Respond in English only. "
+            "Do not use any Japanese characters whatsoever."
+        )
+
+    messages: list[dict] = [{"role": "system", "content": system_content + lang_reminder}]
 
     for turn in trimmed_history:
         role    = turn.get("role")
@@ -210,30 +227,6 @@ def build_messages(
             messages.append({"role": role, "content": content})
 
     messages.append({"role": "user", "content": user_text})
-    
-    # Add explicit language enforcement as a system reminder with examples
-    if lang == "en":
-        messages.append({"role": "system", "content": """CRITICAL: You must respond in English only. Any Japanese characters in your response are strictly forbidden.
-
-EXAMPLE:
-User: "Hello, how can you help me?"
-Assistant: "Hello! I'm here to help you with information about the building, answer questions, and assist with various topics. What would you like to know?"
-
-WRONG RESPONSE (FORBIDDEN): "こんにちは！どのようにお手伝いできますか？"
-CORRECT RESPONSE: "Hello! How can I help you today?"
-
-Remember: ENGLISH ONLY - no Japanese characters allowed."""})
-    elif lang == "ja":
-        messages.append({"role": "system", "content": """重要: 日本語のみで回答してください。英語の使用は厳禁です。
-
-例:
-ユーザー: "こんにちは、どのようにお手伝いできますか？"
-アシスタント: "こんにちは！建物の情報や様々な質問にお答えします。何かお聞きしたいことはありますか？"
-
-間違った回答（禁止）: "Hello! How can I help you?"
-正しい回答: "こんにちは！どのようにお手伝いできますか？"
-
-覚えておいてください：日本語のみ - 英語は使用禁止です。"""})
 
     # Log budget usage
     total_chars = sum(len(m["content"]) for m in messages)

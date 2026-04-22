@@ -345,6 +345,7 @@ class VoicePipeline:
                             query=transcript.text,
                             base_url=self.config.searxng_url,
                             n_results=3,
+                            lang=transcript.language,
                         )
                         logger.info(f"Search returned {len(results)} results for query: '{transcript.text}'")
                         
