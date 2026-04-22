@@ -577,7 +577,7 @@ class KioskMainWindow(QMainWindow):
             self._thread.quit()
             self._thread.wait(3000)
     # --------------------------------------------------------- Lifecycle
-    
+        from PyQt6.QtWidgets import QApplication
 
         QApplication.quit()
     def closeEvent(self, event):

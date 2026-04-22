@@ -1,76 +1,75 @@
 /* ============================================================
-   Voice Kiosk Assistant — Qt Stylesheet
+   Voice Kiosk Assistant — Dark Blue Theme
    ============================================================ */
 
 /* ── Window background ─────────────────────────────────────── */
 QMainWindow, QWidget {
-    background-color: #1e1e2e;
-    color: #cdd6f4;
+    background-color: #0d1117;
+    color: #f0f4ff;
     font-family: "Noto Sans CJK JP", "Yu Gothic UI", "Meiryo UI", "Segoe UI", "Noto Sans", Arial, sans-serif;
 }
 
 /* ── Status indicator label ────────────────────────────────── */
 QLabel {
-    background-color: #313244;
-    border: 1px solid #45475a;
+    background-color: #161b27;
+    border: 1px solid #1e2d4a;
     border-radius: 10px;
     padding: 10px 20px;
     font-size: 20px;
     font-weight: bold;
-    color: #cdd6f4;
+    color: #e8eeff;
 }
 
-/* Mic status bar — smaller, no border */
 QLabel#micStatus {
     background-color: transparent;
     border: none;
     font-size: 15px;
     font-weight: normal;
-    color: #a6adc8;
+    color: #8899bb;
     padding: 4px 0px;
 }
 
 /* ── Conversation area ─────────────────────────────────────── */
 QTextEdit {
-    background-color: #181825;
-    border: 1px solid #45475a;
-    border-radius: 10px;
+    background-color: #0a0f1a;
+    border: 1px solid #1e2d4a;
+    border-radius: 12px;
     padding: 20px;
     font-size: 19px;
     line-height: 1.6;
-    color: #cdd6f4;
-    selection-background-color: #585b70;
+    color: #f0f4ff;
+    selection-background-color: #2a4a8a;
 }
 
 /* ── Text input field ──────────────────────────────────────── */
 QLineEdit {
-    background-color: #313244;
-    border: 2px solid #45475a;
+    background-color: #161b27;
+    border: 2px solid #1e2d4a;
     border-radius: 10px;
     padding: 10px 16px;
     font-size: 18px;
-    color: #cdd6f4;
+    color: #f0f4ff;
 }
 
 QLineEdit:focus {
-    border: 2px solid #89b4fa;
-    background-color: #363649;
+    border: 2px solid #4d8fff;
+    background-color: #1a2035;
 }
 
 QLineEdit:disabled {
-    background-color: #1e1e2e;
-    color: #585b70;
-    border-color: #313244;
+    background-color: #0d1117;
+    color: #3a4a66;
+    border-color: #161b27;
 }
 
 QLineEdit::placeholder {
-    color: #6c7086;
+    color: #3a4a66;
 }
 
-/* ── Buttons — base ────────────────────────────────────────── */
+/* ── Buttons — base (blue) ─────────────────────────────────── */
 QPushButton {
-    background-color: #89b4fa;
-    color: #1e1e2e;
+    background-color: #1a5cd4;
+    color: #ffffff;
     border: none;
     border-radius: 10px;
     padding: 10px 20px;
@@ -79,135 +78,166 @@ QPushButton {
 }
 
 QPushButton:hover {
-    background-color: #b4d0fb;
+    background-color: #2a6de8;
 }
 
 QPushButton:pressed {
-    background-color: #74a8f9;
+    background-color: #1248b0;
 }
 
 QPushButton:disabled {
-    background-color: #313244;
-    color: #585b70;
+    background-color: #161b27;
+    color: #3a4a66;
 }
 
-/* ── Clear button — secondary style ───────────────────────── */
+/* ── Send / Submit button — vivid cyan ─────────────────────── */
+QPushButton#sendButton {
+    background-color: #0097a7;
+    color: #ffffff;
+}
+
+QPushButton#sendButton:hover {
+    background-color: #00b8cc;
+}
+
+QPushButton#sendButton:pressed {
+    background-color: #007a87;
+}
+
+QPushButton#sendButton:disabled {
+    background-color: #161b27;
+    color: #3a4a66;
+}
+
+/* ── Clear button — muted slate ────────────────────────────── */
 QPushButton#clearButton {
-    background-color: #45475a;
-    color: #cdd6f4;
+    background-color: #1e2d4a;
+    color: #c0ccee;
 }
 
 QPushButton#clearButton:hover {
-    background-color: #585b70;
+    background-color: #263756;
 }
 
 QPushButton#clearButton:pressed {
-    background-color: #3a3b4e;
+    background-color: #18243a;
 }
 
 QPushButton#clearButton:disabled {
-    background-color: #313244;
-    color: #45475a;
+    background-color: #161b27;
+    color: #2a3a55;
 }
 
-/* ── Speak button ──────────────────────────────────────────── */
+/* ── Speak button — vivid coral ───────────────────────────── */
 QPushButton#speakButton {
-    background-color: #f38ba8;
-    color: #1e1e2e;
+    background-color: #e63462;
+    color: #ffffff;
     font-size: 15px;
     padding: 6px 16px;
 }
 
 QPushButton#speakButton:hover {
-    background-color: #f5a8bc;
+    background-color: #ff4d7a;
+}
+
+QPushButton#speakButton:pressed {
+    background-color: #c0254f;
 }
 
 QPushButton#speakButton:disabled {
-    background-color: #313244;
-    color: #585b70;
+    background-color: #161b27;
+    color: #3a4a66;
 }
 
-/* ── Stop button ───────────────────────────────────────────── */
+/* ── Stop button — vivid amber ─────────────────────────────── */
 QPushButton#stopButton {
-    background-color: #f9e2af;
-    color: #1e1e2e;
+    background-color: #e67e00;
+    color: #ffffff;
     font-size: 15px;
     padding: 6px 16px;
 }
 
 QPushButton#stopButton:hover {
-    background-color: #fce8b8;
+    background-color: #ff9510;
 }
 
 QPushButton#stopButton:pressed {
-    background-color: #f7dc9f;
+    background-color: #c06800;
 }
 
 QPushButton#stopButton:disabled {
-    background-color: #313244;
-    color: #585b70;
+    background-color: #161b27;
+    color: #3a4a66;
 }
 
-
+/* ── Listen toggle — ON state (vivid green) ────────────────── */
 QPushButton#toggleOnButton {
-    background-color: #a6e3a1;
-    color: #1e1e2e;
+    background-color: #1db954;
+    color: #ffffff;
     font-size: 15px;
     padding: 6px 16px;
 }
 
 QPushButton#toggleOnButton:hover {
-    background-color: #c3f0bf;
+    background-color: #25d265;
 }
 
-/* ── Listen toggle — OFF state ─────────────────────────────── */
+QPushButton#toggleOnButton:pressed {
+    background-color: #169a42;
+}
+
+/* ── Listen toggle — OFF state (muted slate) ───────────────── */
 QPushButton#toggleOffButton {
-    background-color: #45475a;
-    color: #a6adc8;
+    background-color: #1e2d4a;
+    color: #8899bb;
     font-size: 15px;
     padding: 6px 16px;
 }
 
 QPushButton#toggleOffButton:hover {
-    background-color: #585b70;
+    background-color: #263756;
+    color: #c0ccee;
+}
+
+/* ── Close button ──────────────────────────────────────────── */
+#closeButton {
+    background-color: #1e2d4a;
+    color: #c0ccee;
+    border: 1px solid #263756;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: bold;
+}
+
+#closeButton:hover {
+    background-color: #e63462;
+    color: #ffffff;
+    border-color: #e63462;
+}
+
+#closeButton:pressed {
+    background-color: #c0254f;
 }
 
 /* ── Scrollbar ─────────────────────────────────────────────── */
 QScrollBar:vertical {
     border: none;
-    background: #181825;
+    background: #0a0f1a;
     width: 10px;
     margin: 0px;
 }
 
 QScrollBar::handle:vertical {
-    background: #45475a;
+    background: #1e2d4a;
     border-radius: 5px;
     min-height: 24px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: #585b70;
+    background: #2a4470;
 }
 
 QScrollBar::add-line:vertical,
 QScrollBar::sub-line:vertical {
     height: 0px;
-}
-
-#closeButton {
-    background-color: #313244;
-    color: #cdd6f4;
-    border: 1px solid #45475a;
-    border-radius: 6px;
-    font-size: 16px;
-    font-weight: bold;
-}
-#closeButton:hover {
-    background-color: #f38ba8;
-    color: #1e1e2e;
-    border-color: #f38ba8;
-}
-#closeButton:pressed {
-    background-color: #e06c75;
 }
