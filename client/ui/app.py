@@ -306,9 +306,21 @@ class KioskMainWindow(QMainWindow):
         layout.setSpacing(16)
 
         # Status bar
+        top_bar = QHBoxLayout()
+        top_bar.setSpacing(8)
+
         self.status = StatusIndicator()
-        self.status.setFixedHeight(64)
-        layout.addWidget(self.status)
+        self.status.setFixedHeight(48)
+        top_bar.addWidget(self.status, stretch=1)
+
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(44, 44)
+        close_btn.setObjectName("closeButton")
+        close_btn.setToolTip("Close application")
+        close_btn.clicked.connect(self._on_close)
+        top_bar.addWidget(close_btn)
+
+        layout.addLayout(top_bar)
 
         # Conversation
         self.conversation = ConversationWidget()
@@ -557,8 +569,17 @@ class KioskMainWindow(QMainWindow):
         self.speak_button.setEnabled(False)
         self.listen_toggle.setEnabled(False)
 
+    def _on_close(self):
+        """Cleanly shut down worker/thread then exit the process."""
+        if self._worker:
+            self._worker.stop()
+        if self._thread:
+            self._thread.quit()
+            self._thread.wait(3000)
     # --------------------------------------------------------- Lifecycle
+    
 
+        QApplication.quit()
     def closeEvent(self, event):
         if self._worker:
             self._worker.stop()
