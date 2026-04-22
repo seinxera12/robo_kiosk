@@ -412,12 +412,14 @@ class VoicePipeline:
                 await self.ws.send_json({"type": "llm_text_chunk", "text": "", "final": True})
                 logger.info("LLM streaming complete")
 
-                # Update conversation history with this turn
+                # Update conversation history with this turn.
+                # Store the detected language alongside each entry so the
+                # prompt builder can strip out any cross-language contamination.
                 self.state.conversation_history.append(
-                    {"role": "user", "content": transcript.text}
+                    {"role": "user", "content": transcript.text, "lang": transcript.language}
                 )
                 self.state.conversation_history.append(
-                    {"role": "assistant", "content": full_response}
+                    {"role": "assistant", "content": full_response, "lang": transcript.language}
                 )
                 # Keep last 10 turns (20 messages = 10 user + 10 assistant)
                 if len(self.state.conversation_history) > 20:

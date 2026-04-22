@@ -80,7 +80,9 @@ SEARCH RESPONSE RULES - MANDATORY:
 - If search results contain relevant information: MUST use them to provide a comprehensive answer
 - Extract specific facts, numbers, dates, and details from the search results
 - Synthesize information from multiple search results when available
-- If search results are empty or completely irrelevant: Say "I couldn't find current information about that"
+- If search results are empty or completely irrelevant: Say so IN THE USER'S LANGUAGE ({user_language})
+  - If user_language is "ja": say 「現在の情報は見つかりませんでした」
+  - If user_language is "en": say "I couldn't find current information about that"
 - NEVER ignore relevant search results - they contain the most current information available
 - ALWAYS prioritize search result information over general knowledge for current events/data
 
@@ -138,16 +140,33 @@ def _estimate_tokens(text: str) -> int:
     return max(1, len(text) // _CHARS_PER_TOKEN)
 
 
-def _trim_history(history: list[dict], budget_chars: int) -> list[dict]:
+def _trim_history(history: list[dict], budget_chars: int, lang: str = "en") -> list[dict]:
     """
     Trim oldest history turns until total chars fit within budget.
+    Also strips turns whose stored language doesn't match the current turn's
+    language — this prevents English assistant responses from a previous
+    language slip contaminating a Japanese conversation and vice versa.
     Always keeps at least the last 2 messages (1 turn) for coherence.
     """
     if not history:
         return history
 
-    total = sum(len(t.get("content", "")) for t in history)
-    trimmed = list(history)
+    # Filter to only turns that match the current language (or have no lang tag).
+    # Keep pairs together: if either message in a user/assistant pair is the
+    # wrong language, drop the whole pair.
+    filtered = []
+    i = 0
+    while i < len(history):
+        turn = history[i]
+        turn_lang = turn.get("lang")
+        # Accept turns with no lang tag (legacy) or matching lang
+        if turn_lang is None or turn_lang == lang:
+            filtered.append(turn)
+        i += 1
+
+    # Now trim by budget
+    total = sum(len(t.get("content", "")) for t in filtered)
+    trimmed = list(filtered)
 
     while total > budget_chars and len(trimmed) > 2:
         removed = trimmed.pop(0)
@@ -186,20 +205,28 @@ def build_messages(
     """
     template = _SYSTEM_TEMPLATES[intent]
 
+    # Language-aware fallback strings for empty context
+    if lang == "ja":
+        _no_rag     = "（該当する建物情報が見つかりませんでした）"
+        _no_search  = "（検索結果はありません）"
+    else:
+        _no_rag     = "(No relevant building information found)"
+        _no_search  = "(No search results available)"
+
     # Fill template placeholders — unused ones get a safe default
     system_content = template.format(
         building_name=building_name,
         datetime=datetime.now().strftime("%Y-%m-%d %H:%M"),
         kiosk_location=kiosk_meta.get("location", "Unknown"),
-        rag_context=context    if context else "(No relevant building information found)",
-        search_context=context if context else "(No search results available)",
-        user_language=lang,  # Add explicit language parameter
+        rag_context=context    if context else _no_rag,
+        search_context=context if context else _no_search,
+        user_language=lang,
     )
 
     # Budget: system + user query are fixed; trim history to fit
     fixed_chars = len(system_content) + len(user_text)
     history_budget = _MAX_INPUT_CHARS - fixed_chars
-    trimmed_history = _trim_history(list(history), history_budget)
+    trimmed_history = _trim_history(list(history), history_budget, lang=lang)
 
     # Append language enforcement directly to the system message so it is
     # never ignored.  A second "system" role message is silently dropped by
@@ -225,6 +252,19 @@ def build_messages(
         content = turn.get("content", "")
         if role in ("user", "assistant") and content:
             messages.append({"role": role, "content": content})
+
+    # Reinforce language immediately before the current user message so the
+    # model cannot pattern-match on any English assistant turns in history.
+    if lang == "ja":
+        messages.append({
+            "role": "system",
+            "content": "【言語確認】次の回答は必ず日本語のみで行ってください。"
+        })
+    else:
+        messages.append({
+            "role": "system",
+            "content": "LANGUAGE CHECK: Your next response must be in English only."
+        })
 
     messages.append({"role": "user", "content": user_text})
 
