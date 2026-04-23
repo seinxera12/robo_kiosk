@@ -260,6 +260,9 @@ class PipelineWorker(QObject):
 
     def send_text(self, text: str, lang: str = "en"):
         if self._loop and not self._loop.is_closed() and self._ws:
+            # Stop any in-progress TTS playback immediately — same as barge-in
+            if self._playback:
+                self._playback.stop()
             asyncio.run_coroutine_threadsafe(
                 self._ws.send_json({"type": "text_input", "text": text, "lang": lang}),
                 self._loop,

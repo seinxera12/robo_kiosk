@@ -554,16 +554,26 @@ class VoicePipeline:
                     logger.warning(f"No TTS engine available for language: {current_lang}")
                     continue
                 
-                # Synthesize sentence with TTS
-                try:
-                    async for audio_chunk in tts_engine.synthesize_stream(buffer):
-                        if audio_chunk:  # Only queue non-empty chunks
-                            await self.state.audio_output.put(audio_chunk)
-                            logger.debug(f"Queued {len(audio_chunk)} bytes of audio")
-                except Exception as e:
-                    logger.error(f"TTS synthesis error: {e}", exc_info=True)
-                
-                logger.info("TTS synthesis complete for sentence")
+                # Fire synthesis as a background task so the tts_worker loop
+                # immediately returns to collecting the next sentence's tokens.
+                # This pipelines synthesis of sentence N+1 with playback of N.
+                async def _synthesize_and_queue(text: str, engine) -> None:
+                    try:
+                        async for audio_chunk in engine.synthesize_stream(text):
+                            # Abort immediately if an interrupt arrived
+                            if self.state.interrupt_event.is_set():
+                                logger.info("TTS synthesis aborted by interrupt")
+                                return
+                            if audio_chunk:
+                                await self.state.audio_output.put(audio_chunk)
+                                logger.debug(f"Queued {len(audio_chunk)} bytes of audio")
+                    except asyncio.CancelledError:
+                        logger.info("TTS synthesis task cancelled")
+                    except Exception as exc:
+                        logger.error(f"TTS synthesis error: {exc}", exc_info=True)
+                    logger.info("TTS synthesis complete for sentence")
+
+                asyncio.create_task(_synthesize_and_queue(buffer, tts_engine))
 
             except asyncio.CancelledError:
                 logger.info("tts_worker cancelled")
@@ -648,6 +658,9 @@ class VoicePipeline:
                 # Handle binary audio frames
                 if "bytes" in message:
                     audio_data = message["bytes"]
+                    # Interrupt any in-flight TTS before queuing new audio input
+                    if self.state.interrupt_event.is_set() is False:
+                        await self.handle_interrupt(notify_client=False)
                     await self.state.audio_input.put(audio_data)
                 
                 # Handle JSON control messages
@@ -687,15 +700,33 @@ class VoicePipeline:
         elif msg_type == "text_input":
             text = message.get("text", "")
             lang = message.get("lang", "auto")
-            
-            # Auto-detect language if not specified
-            if lang == "auto":
-                from server.lang.detector import detect_language
-                lang = detect_language(text)
-                
+
+            # Always re-detect language server-side from the actual text content.
+            # Never trust the client's lang field — it may be stale, hardcoded,
+            # or wrong for mixed-script queries like "TYO株の最新価格はいくらですか？".
+            from server.lang.detector import detect_language
+            detected_lang = detect_language(text)
+
+            # Only use the client-supplied lang if it is an explicit, valid code
+            # AND the server detection agrees (or the text is too short to be sure).
+            if lang in ("en", "ja") and len(text) >= 4:
+                # If server detection disagrees with client, trust the server.
+                if detected_lang != lang:
+                    logger.info(
+                        f"Language override: client said '{lang}', "
+                        f"server detected '{detected_lang}' — using server detection"
+                    )
+                lang = detected_lang
+            else:
+                lang = detected_lang
+
             logger.info(f"Text input received: {text[:50]}... (lang={lang})")
             logger.debug(f"Full text for language detection: '{text}'")
-            
+
+            # Interrupt any in-flight TTS synthesis tasks and drain queues
+            # so the new response starts cleanly without leftover audio.
+            await self.handle_interrupt(notify_client=False)
+
             # Set current turn language so tts_worker picks the right engine
             self.state.current_turn = {"lang": lang}
             # Build a transcript-like object and push it directly into the transcript queue
@@ -705,7 +736,7 @@ class VoicePipeline:
         else:
             logger.warning(f"Unknown control message type: {msg_type}")
     
-    async def handle_interrupt(self) -> None:
+    async def handle_interrupt(self, notify_client: bool = True) -> None:
         """
         Handle user interrupt (barge-in) during TTS playback.
         
@@ -738,6 +769,11 @@ class VoicePipeline:
         
         # Signal all workers to abort
         self.state.interrupt_event.set()
+
+        # Yield to the event loop so any in-flight background tasks
+        # (_synthesize_and_queue) get a chance to see interrupt_event
+        # and exit before we drain the queues.
+        await asyncio.sleep(0)
         
         # Drain all queues
         await self._drain_queue(self.state.audio_input)
@@ -750,11 +786,12 @@ class VoicePipeline:
         self.state.status = "listening"
         
         # Notify client
-        await self.ws.send_json({
-            "type": "status",
-            "state": "listening"
-        })
-        logger.info("Status update sent to client: listening")
+        if notify_client:
+            await self.ws.send_json({
+                "type": "status",
+                "state": "listening"
+            })
+            logger.info("Status update sent to client: listening")
         
         # Clear interrupt flag for next turn
         self.state.interrupt_event.clear()

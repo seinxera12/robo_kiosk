@@ -152,7 +152,7 @@ async def run_headless_text(config) -> None:
             await ws.send_json({
                 "type": "text_input",
                 "text": text,
-                "lang": "en",
+                "lang": "auto",  # Auto-detect language instead of hardcoding "en"
             })
 
     try:

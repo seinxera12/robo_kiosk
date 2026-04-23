@@ -169,7 +169,7 @@ async def synthesize(request: SynthesisRequest):
                 output = cosyvoice_model.inference_cross_lingual(
                     tts_text=tagged_text,
                     prompt_wav=prompt_wav,
-                    stream=False,
+                    stream=True,   # generate and yield audio chunks incrementally
                     speed=speed
                 )
                 for audio_chunk in output:

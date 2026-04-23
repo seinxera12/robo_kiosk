@@ -151,18 +151,32 @@ def _trim_history(history: list[dict], budget_chars: int, lang: str = "en") -> l
     if not history:
         return history
 
-    # Filter to only turns that match the current language (or have no lang tag).
-    # Keep pairs together: if either message in a user/assistant pair is the
-    # wrong language, drop the whole pair.
+    # Filter by language, enforcing pair integrity.
+    # History is stored as alternating user/assistant pairs. If either message
+    # in a pair has the wrong language, drop the whole pair — an orphaned user
+    # message with no assistant reply (or vice versa) confuses the LLM.
     filtered = []
     i = 0
-    while i < len(history):
-        turn = history[i]
-        turn_lang = turn.get("lang")
-        # Accept turns with no lang tag (legacy) or matching lang
-        if turn_lang is None or turn_lang == lang:
-            filtered.append(turn)
-        i += 1
+    while i < len(history) - 1:
+        user_turn = history[i]
+        asst_turn = history[i + 1]
+        user_lang = user_turn.get("lang")
+        asst_lang = asst_turn.get("lang")
+        # Accept the pair only if BOTH messages match the current language
+        # (or have no lang tag, for legacy entries).
+        user_ok = user_lang is None or user_lang == lang
+        asst_ok = asst_lang is None or asst_lang == lang
+        if user_ok and asst_ok:
+            filtered.append(user_turn)
+            filtered.append(asst_turn)
+        i += 2
+
+    # Handle an unpaired trailing message (shouldn't happen, but be safe)
+    if len(history) % 2 == 1:
+        last = history[-1]
+        last_lang = last.get("lang")
+        if last_lang is None or last_lang == lang:
+            filtered.append(last)
 
     # Now trim by budget
     total = sum(len(t.get("content", "")) for t in filtered)
