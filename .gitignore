@@ -41,3 +41,7 @@ chroma/
 *.tmp
 *.bak
 .env.local
+
+# Audio Tests Files
+*.wav
+

@@ -49,7 +49,7 @@ class PipelineWorker(QObject):
         self.listening_enabled = False  # default OFF — user must enable explicitly
         # Manual speak mode: set True while Speak button is held/active
         self._manual_speak_active = False
-        self._manual_speak_timer = None  # QTimer for timeout
+        self._speak_timeout_task = None  # asyncio Task for 15s timeout
         self._response_started = False   # tracks if bubble already opened
         self._playback = None  # AudioPlayback, created inside worker thread
 
@@ -172,18 +172,19 @@ class PipelineWorker(QObject):
                     if event.event_type == "speech_start":
                         self.mic_active.emit(True)
                         self.status_changed.emit("recording")
+                        logger.info("VAD: speech_start — microphone active")
 
                     elif event.event_type == "speech_end" and event.audio_buffer:
                         self.mic_active.emit(False)
                         self.status_changed.emit("transcribing")
-                        logger.info(f"Sending {len(event.audio_buffer)} bytes of audio to server")
-                        # If manual speak, auto-deactivate after EOS
+                        logger.info(f"VAD: speech_end — sending {len(event.audio_buffer)} bytes to server")
+                        # If manual speak, auto-deactivate after VAD speech_end
                         if self._manual_speak_active:
                             self._manual_speak_active = False
-                            # Clean up timeout timer
-                            if self._manual_speak_timer:
-                                self._manual_speak_timer.stop()
-                                self._manual_speak_timer = None
+                            # Cancel the asyncio timeout task
+                            if self._speak_timeout_task:
+                                self._speak_timeout_task.cancel()
+                                self._speak_timeout_task = None
 
                         try:
                             await self._ws.send_audio(event.audio_buffer)
@@ -218,45 +219,105 @@ class PipelineWorker(QObject):
                     self.error_occurred.emit("Microphone unavailable - please check your audio settings")
 
     def start_manual_speak(self):
-        """Called when Speak button is pressed."""
+        """Called when Speak button is pressed (main thread).
+
+        Schedules the actual activation onto the worker's event loop so that
+        VAD state is only ever touched from the worker thread.
+        """
         logger.info("start_manual_speak called")
-        if self._loop:
-            self._manual_speak_active = True
-            # STT-BUG-003: reset VAD state so stale counters from a previous
-            # (possibly cancelled) session don't cause an immediate false speech_start
-            if hasattr(self, '_vad') and self._vad:
-                self._vad.reset()
-            logger.info("Manual speak activated")
-            # Stop any ongoing TTS playback (barge-in)
-            if self._playback:
-                self._playback.stop()
-            
-            # Set up timeout timer (15 seconds)
-            from PyQt6.QtCore import QTimer
-            if self._manual_speak_timer:
-                self._manual_speak_timer.stop()
-            
-            self._manual_speak_timer = QTimer()
-            self._manual_speak_timer.setSingleShot(True)
-            self._manual_speak_timer.timeout.connect(self._on_manual_speak_timeout)
-            self._manual_speak_timer.start(15000)  # 15 second timeout
-            logger.info("Manual speak timeout timer started (15s)")
+        if self._loop and not self._loop.is_closed():
+            asyncio.run_coroutine_threadsafe(
+                self._activate_manual_speak(),
+                self._loop,
+            )
         else:
             logger.error("No event loop available for manual speak")
 
-    def stop_manual_speak(self):
-        """Called if user cancels before EOS or on timeout."""
-        self._manual_speak_active = False
-        if self._manual_speak_timer:
-            self._manual_speak_timer.stop()
-            self._manual_speak_timer = None
+    async def _activate_manual_speak(self):
+        """Activate manual speak mode — runs on the worker event loop."""
+        # Cancel any previous timeout task
+        if hasattr(self, '_speak_timeout_task') and self._speak_timeout_task:
+            self._speak_timeout_task.cancel()
+            self._speak_timeout_task = None
 
-    def _on_manual_speak_timeout(self):
-        """Handle manual speak timeout."""
+        # Reset VAD state cleanly before activating
+        if self._vad:
+            self._vad.reset()
+
+        # Stop any ongoing TTS playback (barge-in)
+        if self._playback:
+            self._playback.stop()
+
+        self._manual_speak_active = True
+        logger.info("Manual speak activated")
+
+        # Start asyncio timeout (15s) — no QTimer needed
+        self._speak_timeout_task = asyncio.create_task(self._manual_speak_timeout_task())
+
+    async def _manual_speak_timeout_task(self):
+        """Asyncio-based 15s timeout for manual speak — runs on worker loop."""
+        await asyncio.sleep(15)
         if self._manual_speak_active:
-            self._manual_speak_active = False
+            logger.warning("Manual speak timed out after 15 seconds — flushing audio")
+            await self._flush_and_send_vad_audio()
             self.manual_speak_timeout.emit()
-            logger.warning("Manual speak timed out after 15 seconds")
+
+    def stop_manual_speak(self):
+        """Called if user presses Stop before VAD detects end-of-speech (main thread).
+
+        Schedules the flush onto the worker's event loop so VAD state is only
+        ever touched from the worker thread.
+        """
+        if not self._manual_speak_active:
+            return
+        if self._loop and not self._loop.is_closed():
+            asyncio.run_coroutine_threadsafe(
+                self._deactivate_manual_speak(),
+                self._loop,
+            )
+
+    async def _deactivate_manual_speak(self):
+        """Flush VAD buffer and send audio — runs on the worker event loop."""
+        if not self._manual_speak_active:
+            return
+
+        # Cancel timeout task
+        if hasattr(self, '_speak_timeout_task') and self._speak_timeout_task:
+            self._speak_timeout_task.cancel()
+            self._speak_timeout_task = None
+
+        await self._flush_and_send_vad_audio()
+
+    async def _flush_and_send_vad_audio(self):
+        """Flush VAD buffer and send to server — runs on the worker event loop."""
+        self._manual_speak_active = False
+
+        if not self._vad:
+            self.manual_speak_done.emit()
+            return
+
+        audio = self._vad.flush()
+        if audio and len(audio) >= 16000:
+            logger.info(f"Flushing {len(audio)} bytes of VAD audio to server")
+            try:
+                await self._ws.send_audio(audio)
+                logger.info("Flushed audio sent to server")
+            except Exception as e:
+                logger.error(f"Failed to send flushed audio: {e}")
+        else:
+            logger.info(f"Not enough audio to flush ({len(audio) if audio else 0} bytes), discarding")
+
+        self.manual_speak_done.emit()
+
+    async def _send_flushed_audio(self, audio: bytes) -> None:
+        """Send flushed VAD audio to server (runs in worker event loop)."""
+        try:
+            await self._ws.send_audio(audio)
+            logger.info("Flushed audio sent to server")
+        except Exception as e:
+            logger.error(f"Failed to send flushed audio: {e}")
+        finally:
+            self.manual_speak_done.emit()
 
     def send_text(self, text: str, lang: str = "en"):
         if self._loop and not self._loop.is_closed() and self._ws:
@@ -500,22 +561,23 @@ class KioskMainWindow(QMainWindow):
             self._reset_speak_buttons()
 
     def _on_stop_pressed(self):
-        """User pressed Stop — cancel manual speak."""
+        """User pressed Stop — flush VAD buffer and send to server."""
         if not self._worker:
             return
+        # Disable stop button immediately to prevent double-press.
+        # The Speak button re-enables via _on_manual_speak_done once audio is sent.
+        self.stop_button.setEnabled(False)
+        self.mic_status.setText("⏳  Sending audio...")
+        self.mic_status.setStyleSheet("color: #f9e2af;")
         self._worker.stop_manual_speak()
-        self._reset_speak_buttons()
-        self.mic_status.setText("🔇  Always Listen OFF — press Speak to talk")
-        self.mic_status.setStyleSheet("color: #6c7086;")
 
     def _on_manual_speak_done(self):
         """VAD detected end of speech in manual mode — reset button."""
         self._reset_speak_buttons()
 
     def _on_manual_speak_timeout(self):
-        """Manual speak timed out — reset button and show message."""
+        """Manual speak timed out — reset button."""
         self._reset_speak_buttons()
-        self.conversation.add_system_message("⏰ Recording timed out after 15 seconds. Please try again.")
         self.mic_status.setText("🔇  Always Listen OFF — press Speak to talk")
         self.mic_status.setStyleSheet("color: #6c7086;")
 

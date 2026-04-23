@@ -78,6 +78,10 @@ class SileroVAD:
         self.speech_buffer = bytearray()
         self.silence_counter = 0
         self.speech_counter = 0
+        # Rolling pre-speech buffer: keeps the last ~300ms of audio so that
+        # the onset of speech is not clipped when is_speaking flips True.
+        self._pre_speech_buffer = bytearray()
+        self._pre_speech_max_bytes = int(0.3 * sampling_rate * 2)  # 300ms of PCM16
         
         logger.info(f"Initialized Silero VAD with threshold={threshold}")
     
@@ -93,7 +97,30 @@ class SileroVAD:
         self.speech_buffer = bytearray()
         self.silence_counter = 0
         self.speech_counter = 0
+        self._pre_speech_buffer = bytearray()
         logger.debug("VAD state reset")
+
+    def flush(self) -> Optional[bytes]:
+        """
+        Flush whatever audio is currently buffered and reset state.
+
+        Called when the user presses Stop before VAD detects end-of-speech.
+        Returns the buffered audio (or None if nothing was captured), then
+        resets all state so the next session starts clean.
+
+        Returns:
+            bytes if there is buffered speech, None otherwise.
+        """
+        audio = None
+        # Include pre-speech buffer if we never crossed the speech threshold
+        combined = bytes(self._pre_speech_buffer) + bytes(self.speech_buffer)
+        if combined:
+            audio = combined
+            logger.info(f"VAD flush: returning {len(audio)} bytes of buffered audio")
+        else:
+            logger.info("VAD flush: no audio buffered")
+        self.reset()
+        return audio
 
     def process_frame(self, frame) -> Optional[VADEvent]:
         """
@@ -138,10 +165,19 @@ class SileroVAD:
             self.speech_counter += len(frame.data) // 2  # samples
             self.silence_counter = 0
             
+            # Always accumulate into the pre-speech buffer while not yet speaking
+            if not self.is_speaking:
+                self._pre_speech_buffer.extend(frame.data)
+                # Keep only the last _pre_speech_max_bytes to bound memory
+                if len(self._pre_speech_buffer) > self._pre_speech_max_bytes:
+                    self._pre_speech_buffer = self._pre_speech_buffer[-self._pre_speech_max_bytes:]
+
             if not self.is_speaking and self.speech_counter >= self.min_speech_samples:
-                # Speech start detected
+                # Speech start detected — seed speech_buffer with pre-speech audio
+                # so the onset of the utterance is not clipped.
                 self.is_speaking = True
-                self.speech_buffer = bytearray(frame.data)
+                self.speech_buffer = bytearray(self._pre_speech_buffer)
+                self._pre_speech_buffer = bytearray()
                 logger.info("Speech start detected")
                 return VADEvent(
                     event_type="speech_start",
@@ -161,6 +197,11 @@ class SileroVAD:
             self.silence_counter += len(frame.data) // 2  # samples
             if not self.is_speaking:
                 self.speech_counter = 0  # reset pre-speech accumulator on silence
+                # Keep rolling pre-speech buffer even during silence so we capture
+                # the audio just before speech starts.
+                self._pre_speech_buffer.extend(frame.data)
+                if len(self._pre_speech_buffer) > self._pre_speech_max_bytes:
+                    self._pre_speech_buffer = self._pre_speech_buffer[-self._pre_speech_max_bytes:]
             
             if self.is_speaking and self.silence_counter >= self.min_silence_samples:
                 # Speech end detected
@@ -169,6 +210,7 @@ class SileroVAD:
                 
                 audio_buffer = bytes(self.speech_buffer)
                 self.speech_buffer = bytearray()
+                self._pre_speech_buffer = bytearray()
                 
                 logger.info(f"Speech end detected ({len(audio_buffer)} bytes)")
                 return VADEvent(
