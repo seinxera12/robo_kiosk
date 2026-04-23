@@ -139,6 +139,13 @@ class WhisperSTT:
         text_parts = []
         for segment in segments:
             text_parts.append(segment.text)
+            # Log no_speech_prob at INFO — values > 0.6 usually mean silence/noise
+            # and are the main cause of Whisper hallucinations.
+            if segment.no_speech_prob > 0.4:
+                logger.warning(
+                    f"[Whisper] high no_speech_prob={segment.no_speech_prob:.3f} "
+                    f"for segment: {segment.text!r}"
+                )
         
         text = " ".join(text_parts).strip()
         
@@ -180,7 +187,33 @@ class WhisperSTT:
             language=None,
             vad_filter=False,
             condition_on_previous_text=False,
-            without_timestamps=True,   # faster — we don't need word timestamps
+            without_timestamps=False,  # keep timestamps for debug logging
         )
         # Consume generator fully inside the thread
-        return list(segments), info
+        segments = list(segments)
+
+        # ------------------------------------------------------------------ #
+        # Debug logging — set log level to DEBUG to see full Whisper output.  #
+        # All of this is zero-cost at INFO level (logger.isEnabledFor check). #
+        # ------------------------------------------------------------------ #
+        if logger.isEnabledFor(logging.DEBUG):
+            audio_duration_s = len(audio_float) / 16000
+            logger.debug(
+                f"[Whisper] audio_duration={audio_duration_s:.2f}s  "
+                f"detected_lang={info.language}  "
+                f"lang_prob={info.language_probability:.3f}  "
+                f"all_lang_probs={dict(sorted(info.all_language_probs.items(), key=lambda x: -x[1])[:5])}  "
+                f"duration={info.duration:.2f}s  "
+                f"duration_after_vad={getattr(info, 'duration_after_vad', 'n/a')}"
+            )
+            for i, seg in enumerate(segments):
+                logger.debug(
+                    f"[Whisper] segment[{i}]  "
+                    f"[{seg.start:.2f}s → {seg.end:.2f}s]  "
+                    f"avg_logprob={seg.avg_logprob:.3f}  "
+                    f"no_speech_prob={seg.no_speech_prob:.3f}  "
+                    f"compression_ratio={seg.compression_ratio:.2f}  "
+                    f"text={seg.text!r}"
+                )
+
+        return segments, info

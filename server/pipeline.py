@@ -248,8 +248,17 @@ class VoicePipeline:
                 # Transcribe audio using STT
                 result = await self.stt.transcribe(audio_bytes)
 
+                # Drop empty transcripts — Whisper returns "" for silence/noise.
+                # Sending an empty string to the LLM wastes a full round-trip and
+                # can produce hallucinated responses.
+                if not result.text.strip():
+                    logger.info("STT returned empty transcript, skipping LLM")
+                    self.state.audio_input.task_done()
+                    continue
+
                 # Update current turn language so tts_worker routes correctly
                 self.state.current_turn = {"lang": result.language}
+                self.state.status = "thinking"
 
                 await self.state.transcript.put(result)
 
@@ -314,6 +323,12 @@ class VoicePipeline:
                 # Get transcript from queue
                 transcript = await self.state.transcript.get()
                 logger.debug(f"Received transcript: {transcript}")
+
+                # Guard: skip empty transcripts that slipped through
+                if not transcript.text.strip():
+                    logger.warning("llm_worker received empty transcript, skipping")
+                    self.state.transcript.task_done()
+                    continue
                 
                 # Classify intent to decide context source and system prompt
                 from server.llm.intent_classifier import Intent
@@ -399,6 +414,7 @@ class VoicePipeline:
                 
                 # Stream LLM response with fallback — collect full response for history
                 full_response = ""
+                self.state.status = "speaking"
                 async for token in self.llm_chain.stream_with_fallback(messages):
                     full_response += token
                     await self.state.token.put(token)
@@ -411,6 +427,11 @@ class VoicePipeline:
                 # Signal end of response
                 await self.ws.send_json({"type": "llm_text_chunk", "text": "", "final": True})
                 logger.info("LLM streaming complete")
+                self.state.status = "listening"
+
+                # Signal tts_worker that the stream is complete so it can flush
+                # any remaining buffer without waiting for a timeout.
+                await self.state.token.put(None)
 
                 # Update conversation history with this turn.
                 # Store the detected language alongside each entry so the
@@ -489,6 +510,7 @@ class VoicePipeline:
                 # accumulating a huge backlog into one chunk while TTS is busy.
                 buffer = ""
                 sentence_complete = False
+                llm_done = False  # set when None sentinel received
 
                 while not sentence_complete:
                     # Drain whatever is already queued without blocking
@@ -496,6 +518,11 @@ class VoicePipeline:
                         try:
                             token = self.state.token.get_nowait()
                             self.state.token.task_done()
+                            if token is None:
+                                # LLM stream finished — flush whatever is in buffer
+                                llm_done = True
+                                sentence_complete = True
+                                break
                             buffer += token
                             if (buffer and
                                     buffer[-1] in SENTENCE_ENDINGS and
@@ -508,25 +535,30 @@ class VoicePipeline:
                     if sentence_complete:
                         break
 
-                    # Wait briefly for the next token
+                    # Wait for the next token (longer timeout — only flush on sentinel)
                     try:
                         token = await asyncio.wait_for(
                             self.state.token.get(),
-                            timeout=0.3
+                            timeout=2.0
                         )
                         self.state.token.task_done()
-                        buffer += token
-
-                        if (buffer and
-                                buffer[-1] in SENTENCE_ENDINGS and
-                                len(buffer) >= min_sentence_length):
+                        if token is None:
+                            # LLM stream finished — flush remaining buffer
+                            llm_done = True
                             sentence_complete = True
+                        else:
+                            buffer += token
+                            if (buffer and
+                                    buffer[-1] in SENTENCE_ENDINGS and
+                                    len(buffer) >= min_sentence_length):
+                                sentence_complete = True
 
                     except asyncio.TimeoutError:
-                        # No new tokens — flush whatever we have
+                        # No tokens for 2s — something stalled; flush if we have content
                         if buffer.strip():
+                            logger.warning("tts_worker: token timeout, flushing buffer")
                             sentence_complete = True
-                        # else keep waiting
+                        # else keep waiting (LLM may just be slow to start)
                 
                 if not buffer.strip():
                     continue
@@ -658,8 +690,13 @@ class VoicePipeline:
                 # Handle binary audio frames
                 if "bytes" in message:
                     audio_data = message["bytes"]
-                    # Interrupt any in-flight TTS before queuing new audio input
-                    if self.state.interrupt_event.is_set() is False:
+                    # Only interrupt if the pipeline is actively speaking/processing
+                    # (i.e. there is something in-flight to cancel).  Firing an
+                    # interrupt on every audio frame was draining the queues and
+                    # clearing current_turn before the audio could be processed.
+                    if (self.state.status == "speaking" or
+                            not self.state.audio_output.empty() or
+                            not self.state.token.empty()):
                         await self.handle_interrupt(notify_client=False)
                     await self.state.audio_input.put(audio_data)
                 
@@ -828,7 +865,6 @@ class VoicePipeline:
                 drained_count += 1
             except asyncio.QueueEmpty:
                 break
-        
         if drained_count > 0:
             logger.debug(f"Drained {drained_count} items from queue")
     
