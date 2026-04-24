@@ -811,6 +811,17 @@ class VoicePipeline:
         # (_synthesize_and_queue) get a chance to see interrupt_event
         # and exit before we drain the queues.
         await asyncio.sleep(0)
+
+        # Tell the client the current response is finished so its
+        # _response_started flag is reset before the next transcript arrives.
+        # Only send this if the pipeline was actually generating a response —
+        # sending it when already idle causes spurious "Response complete" events
+        # on the client for every interrupt (e.g. VAD firing while listening).
+        if self.state.status in ("speaking", "thinking"):
+            try:
+                await self.ws.send_json({"type": "llm_text_chunk", "text": "", "final": True})
+            except Exception:
+                pass  # best-effort — don't let a send failure block interrupt handling
         
         # Drain all queues
         await self._drain_queue(self.state.audio_input)

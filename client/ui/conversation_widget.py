@@ -57,13 +57,17 @@ class ConversationWidget(QWidget):
     def start_assistant_bubble(self) -> None:
         """Open a new assistant bubble — tokens will stream into it."""
         self._close_bubble_if_open()
-        self.text_display.append(
-            '<p style="margin:6px 0">'
+        # insertHtml does not create a new block on its own, so we explicitly
+        # move to the end and insert a block break first.  This guarantees the
+        # "Assistant ▸" label always starts on its own line regardless of what
+        # was appended before (user message via append() or previous tokens).
+        cursor = self.text_display.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.insertBlock()
+        cursor.insertHtml(
             '<span style="color:#a6e3a1;font-weight:bold;">Assistant</span>'
             '<span style="color:#585b70;"> ▸ </span>'
         )
-        # Move cursor to end so append_to_last_message inserts here
-        cursor = self.text_display.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         self.text_display.setTextCursor(cursor)
         self._bubble_open = True
@@ -78,11 +82,8 @@ class ConversationWidget(QWidget):
         self._scroll_to_bottom()
 
     def finish_assistant_bubble(self) -> None:
-        """Close the current assistant bubble (add closing tag)."""
+        """Close the current assistant bubble."""
         if self._bubble_open:
-            cursor = self.text_display.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.End)
-            cursor.insertHtml("</p>")
             self._bubble_open = False
             self._scroll_to_bottom()
 

@@ -113,7 +113,11 @@ class PipelineWorker(QObject):
             t = msg.get("type")
 
             if t == "transcript":
-                # Server finished STT — show user bubble
+                # Server finished STT — show user bubble.
+                # Reset _response_started so the next assistant response always
+                # opens a fresh bubble, even if the previous response was
+                # interrupted before its final=True chunk arrived.
+                self._response_started = False
                 self.transcript_ready.emit(msg.get("text", ""))
                 self.status_changed.emit("thinking")
 
@@ -125,7 +129,11 @@ class PipelineWorker(QObject):
                         self._response_started = True
                         self.response_start.emit()
                     self.token_received.emit(text)
-                if final:
+                if final and self._response_started:
+                    # Only close the bubble if we actually opened one.
+                    # Spurious final=True from server-side interrupt handling
+                    # (when pipeline was already idle) must not trigger a
+                    # "Response complete" log or a finish_assistant_bubble call.
                     self._response_started = False
                     self.response_done.emit()
                     self.status_changed.emit("listening")
@@ -328,6 +336,9 @@ class PipelineWorker(QObject):
                 self._ws.send_json({"type": "text_input", "text": text, "lang": lang}),
                 self._loop,
             )
+            # Reset _response_started so the incoming response always opens a
+            # fresh assistant bubble, even if a previous response was in-flight.
+            self._response_started = False
             self.transcript_ready.emit(text)
             self.status_changed.emit("thinking")
 
@@ -603,14 +614,24 @@ class KioskMainWindow(QMainWindow):
 
     def _on_response_done(self):
         self.conversation.finish_assistant_bubble()
+        self.keyboard.set_submit_enabled(True)
         logger.info("Response complete")
 
     def _on_text_submitted(self, text: str):
         if self._worker:
+            # Lock submit immediately — before the server even receives the
+            # message.  Without this, the user can fire a second submit in the
+            # ~500ms gap between Enter and the first LLM token arriving.
+            self.keyboard.set_submit_enabled(False)
             self._worker.send_text(text)
+        else:
+            # No worker — nothing was sent, keep submit enabled
+            pass
 
     def _on_error(self, msg: str):
         self.status.set_status("idle")
+        # Unlock submit in case an error fires mid-stream
+        self.keyboard.set_submit_enabled(True)
         
         # Provide specific error messages
         if "WebSocket" in msg or "connection" in msg.lower():

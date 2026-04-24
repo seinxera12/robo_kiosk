@@ -70,3 +70,21 @@ class KeyboardWidget(QWidget):
         self.clear_button.setEnabled(enabled)
         if enabled:
             self.input_field.setFocus()
+
+    def set_submit_enabled(self, enabled: bool):
+        """Allow or block submission while keeping the input field writable.
+
+        Call with False while the assistant is streaming so the user can
+        pre-type their next message but cannot send it until the response
+        finishes.  The input field and Clear button stay active throughout.
+        """
+        self.send_button.setEnabled(enabled)
+        # Disconnect / reconnect returnPressed so Enter is also blocked
+        try:
+            if enabled:
+                self.input_field.returnPressed.connect(self._submit_text)
+            else:
+                self.input_field.returnPressed.disconnect(self._submit_text)
+        except RuntimeError:
+            # Already connected/disconnected — safe to ignore
+            pass
