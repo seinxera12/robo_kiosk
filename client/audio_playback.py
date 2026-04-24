@@ -1,13 +1,29 @@
 """
 Audio playback with WAV decoding.
 
-Plays audio received from server with buffer management.
+Thread-safety contract
+----------------------
+All sounddevice stream operations (open, write, abort, close) run exclusively
+inside _playback_executor — a single-threaded ThreadPoolExecutor.  This is
+required because PortAudio's ALSA backend is NOT thread-safe: calling abort()
+or close() from a different thread while write() is in progress corrupts
+internal ALSA state and causes heap corruption / core dumps.
+
+stop() signals intent via:
+  1. self._stopped     — a plain bool the executor _write_chunk checks
+  2. self._stop_event  — an asyncio.Event the playback loop awaits
+
+The actual stream teardown always happens inside the executor, never from the
+calling thread.
+
+The stream reference (self._sd_stream) lives on the instance so that a new
+session's _open_stream can close a stale stream left by a previous session
+that was interrupted before its finally block ran.
 """
 
 import sounddevice as sd
 import numpy as np
 import asyncio
-from collections import deque
 import logging
 import io
 import wave
@@ -15,167 +31,63 @@ from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
-# Thread pool for blocking sounddevice writes — keeps the event loop free
+# Single-threaded executor — ALL sounddevice calls go through this.
 _playback_executor = ThreadPoolExecutor(max_workers=1)
 
 
 class AudioPlayback:
     """
     Audio playback with WAV decoding and buffering.
-    
     Handles WAV audio from TTS engines (CosyVoice, VOICEVOX).
     """
-    
-    def __init__(
-        self,
-        sample_rate: int = 22050,
-        channels: int = 1,
-        buffer_duration_ms: int = 200
-    ):
+
+    def __init__(self, sample_rate: int = 22050, channels: int = 1):
         self.sample_rate = sample_rate
         self.channels = channels
-        self.buffer_duration_ms = buffer_duration_ms
-        
-        # asyncio.Queue so _start_playback can await new chunks while playing
-        self._queue: asyncio.Queue = None  # initialised lazily on first use
+
+        self._queue: asyncio.Queue = None
         self.is_playing = False
-        self.stream = None
         self._playback_task = None
-        
+        self._stopped = False
+        self._stop_event: asyncio.Event = None
+        self._loop: asyncio.AbstractEventLoop = None
+        self._sd_stream: sd.OutputStream = None   # owned by executor thread only
+        self._sd_rate: int = None
+
         logger.info(f"Initialized audio playback: {sample_rate}Hz, {channels}ch")
 
-    def _get_queue(self) -> asyncio.Queue:
-        """Return (or lazily create) the asyncio queue."""
-        if self._queue is None:
-            self._queue = asyncio.Queue()
-        return self._queue
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def queue_audio(self, audio_bytes: bytes) -> None:
-        """
-        Queue audio chunk for playback.
-
-        Args:
-            audio_bytes: WAV audio bytes from TTS engine
-        """
+        """Queue a WAV chunk for playback. Called from the worker event loop."""
         try:
             pcm_data, sample_rate = self._decode_wav(audio_bytes)
-            
             if pcm_data is None:
-                if len(audio_bytes) > 0:
+                if audio_bytes:
                     logger.info("WAV decode failed — attempting raw PCM")
+                    self._stopped = False
                     self._get_queue().put_nowait((audio_bytes, self.sample_rate))
                     self._ensure_playing()
                 return
-            
+            self._stopped = False
             self._get_queue().put_nowait((pcm_data, sample_rate))
             self._ensure_playing()
-                
         except Exception as e:
             logger.error(f"Error queuing audio: {e}", exc_info=True)
 
-    def _ensure_playing(self) -> None:
-        """Start the playback loop if it isn't already running."""
-        if not self.is_playing:
-            task = asyncio.create_task(self._start_playback())
-            task.add_done_callback(
-                lambda t: logger.error(f"Playback task failed: {t.exception()}")
-                if t.exception() else None
-            )
-            self._playback_task = task
-
-    def _decode_wav(self, wav_bytes: bytes) -> tuple:
-        try:
-            wav_buffer = io.BytesIO(wav_bytes)
-            with wave.open(wav_buffer, 'rb') as wav_file:
-                sample_rate = wav_file.getframerate()
-                n_channels = wav_file.getnchannels()
-                sample_width = wav_file.getsampwidth()
-                n_frames = wav_file.getnframes()
-                pcm_data = wav_file.readframes(n_frames)
-                logger.debug(
-                    f"Decoded WAV: {sample_rate}Hz, {n_channels}ch, "
-                    f"{sample_width}B, {len(pcm_data)} bytes"
-                )
-                return pcm_data, sample_rate
-        except Exception as e:
-            logger.error(f"WAV decode error: {e}", exc_info=True)
-            return None, None
-
-    async def _start_playback(self) -> None:
-        """
-        Persistent playback loop.
-
-        Waits for chunks from the queue and plays them immediately.
-        Runs blocking sounddevice writes in a thread executor so the
-        event loop stays free to receive the next WAV chunk while audio plays.
-        Exits only when the queue has been empty for a short idle timeout.
-        """
-        if self.is_playing:
-            return
-
-        self.is_playing = True
-        logger.debug("Playback loop started")
-
-        queue = self._get_queue()
-        current_rate = None
-        stream = None
-        loop = asyncio.get_event_loop()
-
-        def _open_stream(rate: int) -> sd.OutputStream:
-            s = sd.OutputStream(samplerate=rate, channels=self.channels, dtype=np.int16)
-            s.start()
-            return s
-
-        def _close_stream(s: sd.OutputStream) -> None:
-            try:
-                s.stop()
-                s.close()
-            except Exception:
-                pass
-
-        def _write_chunk(s: sd.OutputStream, data: bytes) -> None:
-            """Blocking write — runs in thread executor."""
-            audio_np = np.frombuffer(data, dtype=np.int16)
-            s.write(audio_np)
-
-        try:
-            while True:
-                try:
-                    # Wait up to 0.5s for the next chunk before declaring idle
-                    audio_data, chunk_rate = await asyncio.wait_for(
-                        queue.get(), timeout=0.5
-                    )
-                except asyncio.TimeoutError:
-                    # Queue empty long enough — stop the loop
-                    break
-
-                # Reopen stream if sample rate changed
-                if chunk_rate != current_rate:
-                    if stream is not None:
-                        await loop.run_in_executor(_playback_executor, _close_stream, stream)
-                    current_rate = chunk_rate
-                    stream = await loop.run_in_executor(
-                        _playback_executor, _open_stream, current_rate
-                    )
-                    logger.debug(f"Opened audio stream at {current_rate}Hz")
-
-                # Write audio without blocking the event loop
-                await loop.run_in_executor(_playback_executor, _write_chunk, stream, audio_data)
-                queue.task_done()
-
-        except Exception as e:
-            logger.error(f"Audio playback error: {e}", exc_info=True)
-        finally:
-            if stream is not None:
-                await loop.run_in_executor(_playback_executor, _close_stream, stream)
-            self.is_playing = False
-            logger.debug("Playback loop stopped")
-
     def stop(self) -> None:
-        """Stop playback immediately and clear queue."""
-        if self._playback_task and not self._playback_task.done():
-            self._playback_task.cancel()
-        # Drain the queue
+        """
+        Stop playback immediately and clear the queue.
+
+        Safe to call from ANY thread (Qt main thread or worker event loop).
+        Does NOT touch the sounddevice stream directly — sets flags and wakes
+        the playback loop so it tears down the stream from inside the executor.
+        """
+        self._stopped = True
+
+        # Drain the queue so no stale chunks play after a new session starts
         q = self._get_queue()
         while not q.empty():
             try:
@@ -183,8 +95,217 @@ class AudioPlayback:
                 q.task_done()
             except asyncio.QueueEmpty:
                 break
+
+        # Wake the playback loop immediately (don't wait for the 0.5s timeout)
+        loop = self._loop
+        if loop and loop.is_running():
+            try:
+                loop.call_soon_threadsafe(self._signal_stop)
+            except RuntimeError:
+                pass
+
         self.is_playing = False
-        logger.debug("Audio playback stopped and queue cleared")
+        logger.debug("Audio playback stop requested")
 
     def is_buffer_underrun(self) -> bool:
         return self._get_queue().empty() and self.is_playing
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _get_queue(self) -> asyncio.Queue:
+        if self._queue is None:
+            self._queue = asyncio.Queue()
+        return self._queue
+
+    def _signal_stop(self) -> None:
+        """Called via call_soon_threadsafe — runs on the worker event loop."""
+        if self._stop_event is not None:
+            self._stop_event.set()
+        task = self._playback_task
+        if task and not task.done():
+            task.cancel()
+
+    def _ensure_playing(self) -> None:
+        """Start the playback loop if it isn't already running."""
+        if self.is_playing:
+            return
+        try:
+            self._loop = asyncio.get_event_loop()
+        except RuntimeError:
+            return
+        self._stop_event = asyncio.Event()
+        task = asyncio.create_task(self._playback_loop())
+        task.add_done_callback(self._on_task_done)
+        self._playback_task = task
+
+    def _on_task_done(self, task: asyncio.Task) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            logger.error(f"Playback task failed: {exc}", exc_info=exc)
+
+    def _decode_wav(self, wav_bytes: bytes) -> tuple:
+        try:
+            buf = io.BytesIO(wav_bytes)
+            with wave.open(buf, 'rb') as wf:
+                sr = wf.getframerate()
+                pcm = wf.readframes(wf.getnframes())
+                logger.debug(f"Decoded WAV: {sr}Hz, {len(pcm)} bytes")
+                return pcm, sr
+        except Exception as e:
+            logger.debug(f"WAV decode error: {e}")
+            return None, None
+
+    # ------------------------------------------------------------------
+    # Executor functions — ONLY called via run_in_executor
+    # These run on the single _playback_executor thread, never concurrently.
+    # ------------------------------------------------------------------
+
+    def _exec_open_stream(self, rate: int) -> None:
+        """Close any existing stream and open a new one at the given rate."""
+        if self._sd_stream is not None:
+            try:
+                self._sd_stream.abort()
+                self._sd_stream.close()
+            except Exception:
+                pass
+            self._sd_stream = None
+        s = sd.OutputStream(samplerate=rate, channels=self.channels, dtype=np.int16)
+        s.start()
+        self._sd_stream = s
+        self._sd_rate = rate
+        logger.debug(f"Opened audio stream at {rate}Hz")
+
+    def _exec_write_chunk(self, data: bytes) -> None:
+        """
+        Write one PCM chunk in small frames, checking _stopped between each.
+
+        sounddevice's blocking write() plays the entire buffer before returning —
+        for a 2-second TTS sentence that means 2 seconds of audio after stop()
+        is called.  Writing in 20ms sub-frames lets us bail within one frame
+        (~20ms) of a stop request, which is imperceptible to the user.
+        """
+        if self._stopped or self._sd_stream is None:
+            return
+
+        audio_np = np.frombuffer(data, dtype=np.int16)
+        # 20ms of samples at the current stream rate
+        frame_samples = int(self._sd_rate * 0.02) if self._sd_rate else 441
+
+        offset = 0
+        total = len(audio_np)
+        while offset < total:
+            if self._stopped or self._sd_stream is None:
+                return
+            end = min(offset + frame_samples, total)
+            frame = audio_np[offset:end]
+            try:
+                self._sd_stream.write(frame)
+            except Exception as e:
+                logger.debug(f"Stream write error (likely after stop): {e}")
+                return
+            offset = end
+
+    def _exec_close_stream(self) -> None:
+        """Abort and close the current stream. Safe to call when stream is None."""
+        s = self._sd_stream
+        if s is None:
+            return
+        self._sd_stream = None
+        self._sd_rate = None
+        try:
+            s.abort()
+            s.close()
+        except Exception as e:
+            logger.debug(f"Stream close error: {e}")
+
+    # ------------------------------------------------------------------
+    # Playback loop
+    # ------------------------------------------------------------------
+
+    async def _playback_loop(self) -> None:
+        """
+        Consume audio chunks from the queue and play them via sounddevice.
+
+        All sounddevice calls go through _playback_executor so they are
+        serialised on a single thread and never race with each other or with
+        the Qt main thread.
+        """
+        if self.is_playing:
+            return
+
+        self.is_playing = True
+        self._stopped = False
+        loop = asyncio.get_event_loop()
+        self._loop = loop
+        queue = self._get_queue()
+        stop_event = self._stop_event
+
+        logger.debug("Playback loop started")
+        try:
+            while not self._stopped:
+                # Wait for either a new chunk or a stop signal (0.5s idle timeout)
+                get_fut = asyncio.ensure_future(queue.get())
+                stop_fut = asyncio.ensure_future(stop_event.wait())
+
+                done, pending = await asyncio.wait(
+                    {get_fut, stop_fut},
+                    timeout=0.5,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                for t in pending:
+                    t.cancel()
+                    try:
+                        await t
+                    except (asyncio.CancelledError, Exception):
+                        pass
+
+                if not done:
+                    # Idle timeout — nothing queued, exit cleanly
+                    break
+
+                if stop_fut in done:
+                    break
+
+                if get_fut not in done:
+                    break
+
+                try:
+                    audio_data, chunk_rate = get_fut.result()
+                except Exception:
+                    break
+
+                if self._stopped:
+                    queue.task_done()
+                    break
+
+                # Open / reopen stream if sample rate changed
+                if chunk_rate != self._sd_rate:
+                    await loop.run_in_executor(
+                        _playback_executor, self._exec_open_stream, chunk_rate
+                    )
+
+                if self._stopped:
+                    queue.task_done()
+                    break
+
+                await loop.run_in_executor(
+                    _playback_executor, self._exec_write_chunk, audio_data
+                )
+                queue.task_done()
+
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"Playback loop error: {e}", exc_info=True)
+        finally:
+            # Close the stream from inside the executor.
+            # _exec_open_stream in a new session will also close any stale
+            # stream, so this is belt-and-suspenders.
+            await loop.run_in_executor(_playback_executor, self._exec_close_stream)
+            self.is_playing = False
+            logger.debug("Playback loop stopped")
