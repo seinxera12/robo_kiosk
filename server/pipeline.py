@@ -138,6 +138,7 @@ class VoicePipeline:
             self.tts_router = TTSRouter(config)
 
         self.state = PipelineState()
+        self._synthesis_tasks: set = set()  # tracks in-flight _synthesize_and_queue tasks
 
         # Intent classifier — reuses the RAG embedder (no extra model load)
         from server.llm.intent_classifier import IntentClassifier
@@ -589,6 +590,9 @@ class VoicePipeline:
                 # Fire synthesis as a background task so the tts_worker loop
                 # immediately returns to collecting the next sentence's tokens.
                 # This pipelines synthesis of sentence N+1 with playback of N.
+                # The task is registered in _synthesis_tasks so handle_interrupt
+                # can cancel it and wait for it to finish before clearing the
+                # interrupt flag — preventing stale audio from leaking through.
                 async def _synthesize_and_queue(text: str, engine) -> None:
                     try:
                         async for audio_chunk in engine.synthesize_stream(text):
@@ -603,9 +607,12 @@ class VoicePipeline:
                         logger.info("TTS synthesis task cancelled")
                     except Exception as exc:
                         logger.error(f"TTS synthesis error: {exc}", exc_info=True)
+                    finally:
+                        self._synthesis_tasks.discard(asyncio.current_task())
                     logger.info("TTS synthesis complete for sentence")
 
-                asyncio.create_task(_synthesize_and_queue(buffer, tts_engine))
+                task = asyncio.create_task(_synthesize_and_queue(buffer, tts_engine))
+                self._synthesis_tasks.add(task)
 
             except asyncio.CancelledError:
                 logger.info("tts_worker cancelled")
@@ -807,10 +814,23 @@ class VoicePipeline:
         # Signal all workers to abort
         self.state.interrupt_event.set()
 
-        # Yield to the event loop so any in-flight background tasks
-        # (_synthesize_and_queue) get a chance to see interrupt_event
-        # and exit before we drain the queues.
-        await asyncio.sleep(0)
+        # Cancel every in-flight _synthesize_and_queue task and wait for them
+        # to finish.  Without this, a task blocked inside engine.synthesize_stream
+        # will resume after the single asyncio.sleep(0) yield, see interrupt_event
+        # is already cleared, and keep pushing audio into audio_output — causing
+        # the "voice resumed after interrupt" behaviour.
+        if self._synthesis_tasks:
+            tasks_to_cancel = set(self._synthesis_tasks)
+            for t in tasks_to_cancel:
+                t.cancel()
+            # Wait for all of them to actually finish (CancelledError propagates)
+            await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+            self._synthesis_tasks.clear()
+            logger.debug(f"Cancelled {len(tasks_to_cancel)} synthesis task(s)")
+        else:
+            # No synthesis tasks — just yield once so any other in-flight
+            # coroutines get a chance to see interrupt_event before we drain.
+            await asyncio.sleep(0)
 
         # Tell the client the current response is finished so its
         # _response_started flag is reset before the next transcript arrives.
