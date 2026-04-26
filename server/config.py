@@ -53,10 +53,16 @@ class Config:
     # Kiosk metadata (set per connection)
     kiosk_metadata: dict = None
 
-    stt_device :str = "cuda"
+    stt_device: str = "cuda"
     cosyvoice_model_path: str = "iic/CosyVoice2-0.5B"
     cosyvoice_url: str = "http://localhost:5002"
     cosyvoice_device: str = "cuda"
+
+    # Kokoro-82M TTS (English primary engine)
+    kokoro_voice: str = "af_heart"   # American female — best general-purpose voice
+    kokoro_speed: float = 1.0        # Speech rate multiplier
+    kokoro_device: str = "cpu"       # "cpu" or "cuda" — Kokoro runs fine on CPU
+    kokoro_lang: str = "a"           # "a" = American English, "b" = British English
     
     def __post_init__(self):
         """Initialize mutable defaults."""
@@ -122,4 +128,10 @@ class Config:
             
             # Feature toggles
             use_rag=os.getenv("USE_RAG", "true").lower() not in ("false", "0", "no"),
+
+            # Kokoro TTS
+            kokoro_voice=os.getenv("KOKORO_VOICE", "af_heart"),
+            kokoro_speed=float(os.getenv("KOKORO_SPEED", "1.0")),
+            kokoro_device=os.getenv("KOKORO_DEVICE", "cpu"),
+            kokoro_lang=os.getenv("KOKORO_LANG", "a"),
         )
