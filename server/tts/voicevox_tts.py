@@ -19,7 +19,7 @@ class VoicevoxTTS:
     Uses two-step API: audio_query → synthesis
     """
     
-    def __init__(self, config, speaker: int = 1):
+    def __init__(self, config, speaker: int = 888753760):
         """
         Initialize VOICEVOX client.
 
@@ -32,7 +32,7 @@ class VoicevoxTTS:
         else:
             self.base_url = getattr(config, "tts_jp_url", "http://localhost:50021")
         self.speaker = speaker
-        logger.info(f"Initialized VOICEVOX TTS at {self.base_url}")
+        logger.info(f"Initialized AivisSpeech TTS at {self.base_url}, speaker={self.speaker}")
     
     async def health_check(self) -> bool:
         """
