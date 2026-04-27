@@ -21,6 +21,10 @@ Floor 2 contains office spaces, meeting rooms, and collaboration areas.
 - Phone booths: Scattered throughout floor
 - Quiet work zones: Near windows
 
+### Restrooms
+- Men's restroom: Near the north elevator bank
+- Women's restroom: Near the south elevator bank
+- Accessible restroom: Near reception
 ### Amenities
 - Coffee station: Near elevators
 - Printer/copy room: Near conference rooms
