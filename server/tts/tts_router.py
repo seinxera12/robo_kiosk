@@ -6,8 +6,9 @@ English routing (in priority order):
   2. CosyVoice2  — remote service fallback (slower, heavier)
 
 Japanese routing (in priority order):
-  1. VOICEVOX    — local Docker service, natural Japanese
-  2. Fish Speech — placeholder fallback (not yet implemented)
+  1. Kokoro-82M Japanese — local, fast, in-process Japanese TTS
+  2. VOICEVOX            — local Docker service, natural Japanese
+  3. Fish Speech         — placeholder fallback (not yet implemented)
 """
 
 from typing import Literal, AsyncIterator
@@ -23,7 +24,7 @@ class TTSRouter:
 
     Routes:
     - English  → Kokoro-82M (primary) → CosyVoice2 (fallback)
-    - Japanese → VOICEVOX   (primary) → Fish Speech (fallback)
+    - Japanese → Kokoro-82M JP (primary) → VOICEVOX (fallback) → Fish Speech (last resort)
     """
 
     def __init__(self, config):
@@ -58,20 +59,35 @@ class TTSRouter:
             self.cosyvoice = None
 
         # ---- Japanese engines -----------------------------------------------
-        # Primary: VOICEVOX (local Docker service)
+        # Primary: Kokoro-82M Japanese (local, in-process)
+        # Only initialised if not explicitly disabled via config.
+        kokoro_jp_enabled = getattr(config, "kokoro_jp_enabled", True)
+        if kokoro_jp_enabled:
+            try:
+                from server.tts.kokoro_tts import KokoroJapaneseTTS
+                self.kokoro_jp = KokoroJapaneseTTS(config)
+                logger.info("KokoroJapaneseTTS initialised (Japanese primary)")
+            except Exception as exc:
+                logger.warning(f"Failed to initialise KokoroJapaneseTTS: {exc}")
+                self.kokoro_jp = None
+        else:
+            logger.info("KokoroJapaneseTTS disabled via config (kokoro_jp_enabled=False)")
+            self.kokoro_jp = None
+
+        # Fallback: VOICEVOX (local Docker service)
         try:
             from server.tts.voicevox_tts import VoicevoxTTS
             self.voicevox = VoicevoxTTS(config)
-            logger.info("VoicevoxTTS initialised (Japanese primary)")
+            logger.info("VoicevoxTTS initialised (Japanese fallback)")
         except Exception as exc:
             logger.warning(f"Failed to initialise VoicevoxTTS: {exc}")
             self.voicevox = None
 
-        # Fallback: Fish Speech (placeholder)
+        # Last resort: Fish Speech (placeholder)
         try:
             from server.tts.fish_speech_tts import FishSpeechTTS
             self.fish_speech = FishSpeechTTS(config)
-            logger.info("FishSpeechTTS initialised (Japanese fallback)")
+            logger.info("FishSpeechTTS initialised (Japanese last resort)")
         except Exception as exc:
             logger.warning(f"Failed to initialise FishSpeechTTS: {exc}")
             self.fish_speech = None
@@ -87,7 +103,7 @@ class TTSRouter:
         Return the best available TTS engine for the given language.
 
         English priority:  Kokoro → CosyVoice2
-        Japanese priority: VOICEVOX → Fish Speech
+        Japanese priority: KokoroJP → VOICEVOX → Fish Speech
 
         Args:
             lang: Language code ("en" or "ja")
@@ -111,8 +127,14 @@ class TTSRouter:
             return None
 
         else:  # "ja"
+            if self.kokoro_jp is not None:
+                logger.debug("TTSRouter: Japanese → KokoroJapaneseTTS")
+                return self.kokoro_jp
+
             if self.voicevox is not None:
-                logger.debug("TTSRouter: Japanese → VoicevoxTTS")
+                logger.info(
+                    "TTSRouter: KokoroJapaneseTTS unavailable — falling back to VoicevoxTTS for Japanese"
+                )
                 return self.voicevox
 
             if self.fish_speech is not None:
@@ -141,6 +163,8 @@ class TTSRouter:
             results["kokoro"] = await self.kokoro.health_check()
         if self.cosyvoice is not None:
             results["cosyvoice"] = await self.cosyvoice.health_check()
+        if self.kokoro_jp is not None:
+            results["kokoro_jp"] = await self.kokoro_jp.health_check()
         if self.voicevox is not None:
             results["voicevox"] = await self.voicevox.health_check()
         if self.fish_speech is not None:

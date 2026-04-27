@@ -1,19 +1,23 @@
 """
-Kokoro-82M English TTS engine (local, in-process).
+Kokoro-82M TTS engines (local, in-process) — English and Japanese.
 
 Kokoro is a lightweight 82M-parameter TTS model that runs entirely in-process
-on CPU or CUDA.  It produces high-quality English speech with very low latency
-compared to CosyVoice2, making it the preferred English engine.
+on CPU or CUDA.  It produces high-quality speech with very low latency.
 
-CosyVoice2 is kept as a fallback for cases where Kokoro is unavailable or
-fails (e.g. model not downloaded, CUDA OOM on a small GPU).
+Classes:
+    KokoroTTS          — English TTS (lang_code='a'/'b', primary English engine)
+    KokoroJapaneseTTS  — Japanese TTS (lang_code='j', primary Japanese engine)
+
+Both classes share a single-threaded executor so they never contend with each
+other (a conversation is always one language at a time).
 
 Audio output: WAV bytes at 24 kHz, mono, PCM16 — same format as CosyVoice2
-so the rest of the pipeline (audio_output_worker → AudioPlayback) needs no
-changes.
+and VOICEVOX so the rest of the pipeline needs no changes.
 
 Dependencies:
     pip install kokoro>=0.9.4 soundfile numpy
+    pip install misaki[en]   # English G2P
+    pip install misaki[ja]   # Japanese G2P (required for KokoroJapaneseTTS)
 
 Model download (first run):
     The kokoro library downloads the model weights automatically from
@@ -23,7 +27,10 @@ Model download (first run):
 Usage:
     engine = KokoroTTS(config)
     async for wav_bytes in engine.synthesize_stream("Hello world."):
-        # wav_bytes is a complete WAV file
+        ...
+
+    jp_engine = KokoroJapaneseTTS(config)
+    async for wav_bytes in jp_engine.synthesize_stream("こんにちは。"):
         ...
 """
 
@@ -301,3 +308,248 @@ def _split_sentences(text: str) -> list[str]:
 
     # Filter out empty strings and very short fragments (< 3 chars)
     return [p.strip() for p in parts if p.strip() and len(p.strip()) >= 3]
+
+
+# ---------------------------------------------------------------------------
+# Japanese sentence splitter
+# ---------------------------------------------------------------------------
+
+def _split_sentences_ja(text: str) -> list[str]:
+    """
+    Split Japanese text into sentence-sized chunks for incremental synthesis.
+
+    Splits on Japanese sentence-ending punctuation (。！？…) and their
+    ASCII equivalents.  Keeps the punctuation attached to the preceding
+    sentence.  Short fragments (< 2 chars) are merged with the next chunk
+    to avoid Kokoro's weakness on very short utterances.
+
+    Args:
+        text: Input Japanese text (may contain multiple sentences)
+
+    Returns:
+        List of sentence strings (non-empty, stripped)
+    """
+    import re
+
+    # Split on Japanese/ASCII sentence-ending punctuation
+    parts = re.split(r'(?<=[。！？…!?])\s*', text.strip())
+
+    sentences = [p.strip() for p in parts if p.strip()]
+
+    # Merge fragments shorter than 2 chars into the next sentence to avoid
+    # Kokoro's short-utterance weakness (model may produce silence/artifacts).
+    merged: list[str] = []
+    carry = ""
+    for s in sentences:
+        combined = carry + s
+        if len(combined) < 2:
+            carry = combined  # too short — carry forward
+        else:
+            merged.append(combined)
+            carry = ""
+    if carry:
+        if merged:
+            merged[-1] += carry  # append leftover to last sentence
+        else:
+            merged.append(carry)
+
+    return merged
+
+
+# ---------------------------------------------------------------------------
+# KokoroJapaneseTTS
+# ---------------------------------------------------------------------------
+
+class KokoroJapaneseTTS:
+    """
+    Kokoro-82M Japanese TTS engine.
+
+    Uses Kokoro's Japanese pipeline (lang_code='j', misaki[ja] G2P) to
+    synthesise Japanese text entirely in-process.  Shares the same
+    single-threaded executor as KokoroTTS so the two engines never run
+    concurrently (a conversation is always one language at a time).
+
+    Attributes:
+        voice:       Kokoro Japanese voice name (default "jf_alpha")
+        sample_rate: Output sample rate (24 000 Hz)
+        device:      "cuda" or "cpu"
+        speed:       Speech rate multiplier (1.0 = normal)
+    """
+
+    SAMPLE_RATE = 24_000
+
+    def __init__(self, config):
+        """
+        Initialise the Kokoro Japanese TTS engine.
+
+        Args:
+            config: Server Config object.  Reads:
+                - kokoro_jp_voice   (str,   default "jf_alpha")
+                - kokoro_speed      (float, default 1.0)   — shared with English engine
+                - kokoro_device     (str,   default "cpu") — shared with English engine
+        """
+        self.voice: str = getattr(config, "kokoro_jp_voice", "jf_alpha")
+        self.speed: float = float(getattr(config, "kokoro_speed", 1.0))
+        self.device: str = getattr(config, "kokoro_device", "cpu")
+        self.lang: str = "j"  # Kokoro Japanese lang_code — always fixed
+        self.sample_rate: int = self.SAMPLE_RATE
+
+        # Lazy-loaded — model loads on first synthesis call.
+        self._pipeline = None
+        self._load_error: Optional[Exception] = None
+        self._loaded = False
+
+        logger.info(
+            f"KokoroJapaneseTTS configured: voice={self.voice}, speed={self.speed}, "
+            f"device={self.device}"
+        )
+
+    # ------------------------------------------------------------------
+    # Model loading
+    # ------------------------------------------------------------------
+
+    def _load_model_sync(self) -> None:
+        """
+        Load the Kokoro Japanese pipeline (blocking — runs in executor thread).
+
+        Sets self._pipeline on success, self._load_error on failure.
+        """
+        if self._loaded:
+            return
+        try:
+            from kokoro import KPipeline  # type: ignore[import]
+
+            logger.info("Loading Kokoro-82M Japanese pipeline…")
+            self._pipeline = KPipeline(
+                lang_code=self.lang,   # 'j' = Japanese
+                repo_id="hexgrad/Kokoro-82M",
+                device=self.device,
+            )
+            self._loaded = True
+            logger.info(
+                f"Kokoro-82M Japanese ready — voice: {self.voice}, "
+                f"device: {self.device}, speed: {self.speed}x"
+            )
+        except ImportError as exc:
+            self._load_error = exc
+            logger.error(
+                "kokoro package not installed or misaki[ja] missing. "
+                "Run: pip install kokoro>=0.9.4 'misaki[ja]'"
+            )
+        except Exception as exc:
+            self._load_error = exc
+            logger.error(f"Failed to load Kokoro Japanese model: {exc}", exc_info=True)
+
+    async def _ensure_loaded(self) -> bool:
+        """
+        Ensure the Japanese pipeline is loaded, loading it in the executor if needed.
+
+        Returns:
+            True if the pipeline is ready, False if loading failed.
+        """
+        if self._loaded:
+            return True
+        if self._load_error is not None:
+            return False
+        loop = asyncio.get_event_loop()
+        # Reuse the shared executor — English and Japanese pipelines are never
+        # loaded simultaneously (conversations are single-language).
+        await loop.run_in_executor(_kokoro_executor, self._load_model_sync)
+        return self._loaded
+
+    # ------------------------------------------------------------------
+    # Health check
+    # ------------------------------------------------------------------
+
+    async def health_check(self) -> bool:
+        """
+        Return True if the Kokoro Japanese pipeline is (or can be) loaded.
+
+        Does NOT trigger a download — only checks whether the model is
+        already in memory or the kokoro package is importable.
+        """
+        if self._loaded:
+            return True
+        try:
+            import kokoro  # noqa: F401
+            return True
+        except ImportError:
+            return False
+
+    # ------------------------------------------------------------------
+    # Synthesis
+    # ------------------------------------------------------------------
+
+    def _synthesize_sentence_sync(self, text: str) -> Optional[bytes]:
+        """
+        Synthesise a single Japanese sentence synchronously (runs in executor thread).
+
+        Args:
+            text: Japanese text to synthesise
+
+        Returns:
+            WAV bytes, or None on error.
+        """
+        if self._pipeline is None:
+            return None
+        try:
+            audio_segments = []
+            for _, _, audio in self._pipeline(
+                text,
+                voice=self.voice,
+                speed=self.speed,
+                split_pattern=None,  # we handle splitting ourselves
+            ):
+                if audio is not None and len(audio) > 0:
+                    audio_segments.append(audio)
+
+            if not audio_segments:
+                logger.warning(f"KokoroJP returned no audio for: {text[:50]!r}")
+                return None
+
+            combined = np.concatenate(audio_segments)
+            return _pcm_to_wav(combined, self.SAMPLE_RATE)
+
+        except Exception as exc:
+            logger.error(f"KokoroJP synthesis error: {exc}", exc_info=True)
+            return None
+
+    async def synthesize_stream(self, text: str) -> AsyncIterator[bytes]:
+        """
+        Synthesise Japanese text and yield WAV chunks sentence-by-sentence.
+
+        Args:
+            text: Japanese text to synthesise (one or more sentences)
+
+        Yields:
+            Complete WAV file bytes for each synthesised segment.
+        """
+        if not text or not text.strip():
+            logger.warning("KokoroJapaneseTTS.synthesize_stream called with empty text")
+            return
+
+        if not await self._ensure_loaded():
+            logger.error("Kokoro Japanese pipeline not available — skipping synthesis")
+            return
+
+        loop = asyncio.get_event_loop()
+
+        sentences = _split_sentences_ja(text)
+        logger.debug(f"KokoroJP synthesising {len(sentences)} segment(s): {text[:80]!r}")
+
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+
+            wav_bytes = await loop.run_in_executor(
+                _kokoro_executor,
+                self._synthesize_sentence_sync,
+                sentence,
+            )
+
+            if wav_bytes:
+                logger.debug(f"KokoroJP yielding {len(wav_bytes)} bytes for: {sentence[:40]!r}")
+                yield wav_bytes
+            else:
+                logger.warning(f"KokoroJP produced no audio for: {sentence[:40]!r}")

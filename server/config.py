@@ -63,6 +63,10 @@ class Config:
     kokoro_speed: float = 1.0        # Speech rate multiplier
     kokoro_device: str = "cpu"       # "cpu" or "cuda" — Kokoro runs fine on CPU
     kokoro_lang: str = "a"           # "a" = American English, "b" = British English
+
+    # Kokoro-82M Japanese TTS (Japanese primary engine)
+    kokoro_jp_voice: str = "jf_alpha"  # Best overall Japanese female voice
+    kokoro_jp_enabled: bool = True     # Set False to skip Kokoro JP and use VOICEVOX directly
     
     def __post_init__(self):
         """Initialize mutable defaults."""
@@ -134,4 +138,6 @@ class Config:
             kokoro_speed=float(os.getenv("KOKORO_SPEED", "1.0")),
             kokoro_device=os.getenv("KOKORO_DEVICE", "cpu"),
             kokoro_lang=os.getenv("KOKORO_LANG", "a"),
+            kokoro_jp_voice=os.getenv("KOKORO_JP_VOICE", "jf_alpha"),
+            kokoro_jp_enabled=os.getenv("KOKORO_JP_ENABLED", "true").lower() not in ("false", "0", "no"),
         )
