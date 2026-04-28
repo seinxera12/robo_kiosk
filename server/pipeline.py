@@ -11,6 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional, Any
 import torch
+from starlette.websockets import WebSocketDisconnect
 
 import logging
 
@@ -333,60 +334,133 @@ class VoicePipeline:
                 
                 # Classify intent to decide context source and system prompt
                 from server.llm.intent_classifier import Intent
+                
+                logger.info("=" * 80)
+                logger.info("🎯 INTENT CLASSIFICATION")
+                logger.info("=" * 80)
+                logger.info(f"📝 User input: '{transcript.text}'")
+                logger.info(f"🌐 Language: {transcript.language}")
+                
                 intent_result = self.intent_classifier.classify(
                     transcript.text,
                     history=self.state.conversation_history,
                 )
                 intent = intent_result.intent
+                
+                # Enhanced intent logging with routing telemetry
+                intent_icon = {
+                    Intent.BUILDING: "🏢",
+                    Intent.SEARCH: "🔍",
+                    Intent.GENERAL: "💬"
+                }.get(intent, "❓")
+                
+                logger.info(f"{intent_icon} Intent: {intent.value.upper()}")
+                logger.info(f"📊 Confidence: {intent_result.confidence:.2%}")
+                logger.info(f"🔧 Method: {intent_result.method}")
+                
+                # Show routing decision
+                if intent == Intent.BUILDING:
+                    logger.info("🎯 Routing: RAG retrieval from building knowledge base")
+                elif intent == Intent.SEARCH:
+                    logger.info("🎯 Routing: Web search via SearXNG + query reformulation")
+                else:
+                    logger.info("🎯 Routing: General conversation (no external context)")
+                
+                logger.info("=" * 80)
                 logger.info(
                     f"Intent: {intent.value} "
                     f"(conf={intent_result.confidence:.2f}, method={intent_result.method})"
                 )
 
                 # Fetch context based on intent
+                logger.info("─" * 80)
+                logger.info("📚 CONTEXT RETRIEVAL")
+                logger.info("─" * 80)
+                
                 context = ""
                 if intent == Intent.BUILDING and self.config.use_rag:
+                    logger.info("🏢 Retrieving from building knowledge base (RAG)...")
+                    logger.info(f"   Query: '{transcript.text}'")
+                    logger.info(f"   Language: {transcript.language}")
+                    logger.info(f"   Top-K: 3 chunks")
+                    
                     context = await self.rag.retrieve(
                         query=transcript.text,
                         lang=transcript.language,
                         n=3,
                     )
-                    logger.info(f"RAG context: {len(context)} chars")
+                    logger.info(f"✅ RAG retrieval complete: {len(context)} characters")
+                    if context:
+                        # Show preview of retrieved context
+                        preview = context[:200] + "..." if len(context) > 200 else context
+                        logger.info(f"   Preview: {preview}")
 
                 elif intent == Intent.SEARCH:
+                    logger.info("🔍 Initiating web search pipeline...")
                     try:
                         from server.search.searxng_client import searxng_search
+                        from server.search.query_reformulator import extract_search_query
                         from server.llm.prompt_builder import format_search_context
+                        
+                        # Query reformulation happens here (with its own detailed logging)
+                        search_query = extract_search_query(
+                            transcript.text,
+                            recent_history=self.state.conversation_history,
+                        )
+                        
+                        logger.info("─" * 80)
+                        logger.info("🌐 WEB SEARCH")
+                        logger.info("─" * 80)
+                        logger.info(f"🔍 Search query: '{search_query}'")
+                        logger.info(f"🌐 Search engine: SearXNG ({self.config.searxng_url})")
+                        logger.info(f"📊 Max results: 3")
+                        logger.info(f"🌐 Language: {transcript.language}")
+                        
                         results = await searxng_search(
-                            query=transcript.text,
+                            query=search_query,
                             base_url=self.config.searxng_url,
                             n_results=3,
                             lang=transcript.language,
                         )
-                        logger.info(f"Search returned {len(results)} results for query: '{transcript.text}'")
+                        
+                        logger.info(f"✅ Search complete: {len(results)} results returned")
                         
                         # Log detailed search results
-                        for i, result in enumerate(results):
-                            title = result.get('title', 'No title')
-                            content = result.get('content', 'No content')
-                            url = result.get('url', 'No URL')
-                            logger.info(f"Search result {i+1}:")
-                            logger.info(f"  Title: {title}")
-                            logger.info(f"  Content: {content[:300]}{'...' if len(content) > 300 else ''}")
-                            logger.info(f"  URL: {url}")
+                        if results:
+                            logger.info("─" * 80)
+                            logger.info("📄 SEARCH RESULTS")
+                            logger.info("─" * 80)
+                            for i, result in enumerate(results, 1):
+                                title = result.get('title', 'No title')
+                                content = result.get('content', 'No content')
+                                url = result.get('url', 'No URL')
+                                logger.info(f"Result #{i}:")
+                                logger.info(f"  📌 Title: {title}")
+                                logger.info(f"  📝 Content: {content[:150]}{'...' if len(content) > 150 else ''}")
+                                logger.info(f"  🔗 URL: {url}")
+                                if i < len(results):
+                                    logger.info("  " + "─" * 76)
                         
                         context = format_search_context(results)
                         if context:
-                            logger.info(f"Formatted search context: {len(context)} characters")
-                            logger.info(f"Search context content:\n{context}")
+                            logger.info("─" * 80)
+                            logger.info(f"✅ Search context formatted: {len(context)} characters")
                         else:
-                            logger.warning("Search returned no usable results — falling back to GENERAL")
+                            logger.warning("⚠️  Search returned no usable results — falling back to GENERAL")
                             intent = Intent.GENERAL
                     except Exception as e:
-                        logger.warning(f"Search failed ({e}) — falling back to GENERAL")
+                        logger.warning(f"❌ Search failed ({type(e).__name__}: {e}) — falling back to GENERAL")
                         intent = Intent.GENERAL
+                else:
+                    logger.info("💬 No external context (general conversation mode)")
+                
+                logger.info("=" * 80)
 
                 # Build prompt with intent-specific system prompt + context
+                logger.info("─" * 80)
+                logger.info("🔨 PROMPT CONSTRUCTION")
+                logger.info("─" * 80)
+                
                 from server.llm.prompt_builder import build_messages
                 messages = build_messages(
                     user_text=transcript.text,
@@ -401,33 +475,80 @@ class VoicePipeline:
                     intent=intent,
                 )
 
-                logger.info(f"Prompt built: intent={intent.value}, messages={len(messages)}")
+                logger.info(f"✅ Prompt built successfully")
+                logger.info(f"   Intent: {intent.value}")
+                logger.info(f"   Total messages: {len(messages)}")
+                logger.info(f"   Context length: {len(context)} characters")
+                logger.info(f"   History turns: {len(self.state.conversation_history) // 2}")
                 
-                # Log the final prompt for debugging
-                logger.info("=== FINAL PROMPT TO LLM ===")
-                for i, msg in enumerate(messages):
+                # Calculate total prompt size
+                total_chars = sum(len(msg.get('content', '')) for msg in messages)
+                logger.info(f"   Total prompt size: {total_chars} characters (~{total_chars // 4} tokens)")
+                
+                # Log the final prompt for debugging (condensed)
+                logger.info("─" * 80)
+                logger.info("📋 PROMPT PREVIEW")
+                logger.info("─" * 80)
+                for i, msg in enumerate(messages, 1):
                     role = msg.get('role', 'unknown')
                     content = msg.get('content', '')
-                    logger.info(f"Message {i+1} ({role}):")
-                    logger.info(f"{content}")
-                    logger.info("---")
-                logger.info("=== END PROMPT ===")
+                    role_icon = "🤖" if role == "system" else "👤" if role == "user" else "💬"
+                    
+                    # Show first 150 chars of each message
+                    preview = content[:150] + "..." if len(content) > 150 else content
+                    logger.info(f"{role_icon} Message {i} ({role}, {len(content)} chars):")
+                    logger.info(f"   {preview}")
+                
+                logger.info("=" * 80)
                 
                 # Stream LLM response with fallback — collect full response for history
+                logger.info("🤖 LLM GENERATION START")
+                logger.info("─" * 80)
+                
+                import time
+                generation_start = time.time()
+                token_count = 0
+                
                 full_response = ""
                 self.state.status = "speaking"
+                client_disconnected = False
                 async for token in self.llm_chain.stream_with_fallback(messages):
                     full_response += token
+                    token_count += 1
                     await self.state.token.put(token)
-                    await self.ws.send_json({
-                        "type": "llm_text_chunk",
-                        "text": token,
-                        "final": False
-                    })
+                    try:
+                        await self.ws.send_json({
+                            "type": "llm_text_chunk",
+                            "text": token,
+                            "final": False
+                        })
+                    except (WebSocketDisconnect, RuntimeError):
+                        # Client disconnected mid-stream — stop sending but let
+                        # TTS finish draining so queues are left in a clean state.
+                        logger.info("llm_worker: client disconnected during token stream")
+                        client_disconnected = True
+                        break
 
-                # Signal end of response
-                await self.ws.send_json({"type": "llm_text_chunk", "text": "", "final": True})
-                logger.info("LLM streaming complete")
+                generation_duration = time.time() - generation_start
+                tokens_per_second = token_count / generation_duration if generation_duration > 0 else 0
+
+                # Signal end of response (skip if client already gone)
+                if not client_disconnected:
+                    try:
+                        await self.ws.send_json({"type": "llm_text_chunk", "text": "", "final": True})
+                    except (WebSocketDisconnect, RuntimeError):
+                        logger.info("llm_worker: client disconnected before final chunk")
+                        client_disconnected = True
+                
+                logger.info("─" * 80)
+                logger.info("✅ LLM GENERATION COMPLETE")
+                logger.info(f"   Response length: {len(full_response)} characters")
+                logger.info(f"   Tokens generated: {token_count}")
+                logger.info(f"   Duration: {generation_duration:.2f}s")
+                logger.info(f"   Speed: {tokens_per_second:.1f} tokens/sec")
+                logger.info(f"   Preview: {full_response[:100]}{'...' if len(full_response) > 100 else ''}")
+                logger.info("=" * 80)
+                
                 self.state.status = "listening"
 
                 # Signal tts_worker that the stream is complete so it can flush
@@ -664,12 +785,16 @@ class VoicePipeline:
                 
                 logger.debug(f"Sending {len(audio_chunk)} bytes of audio to client")
                 
-                # Send audio to client as binary WebSocket message
+                # Send audio to client as binary WebSocket message.
+                # Chunk into ≤64 KB frames to stay well under the client's
+                # WebSocket max_size limit (avoids 1009 "message too big").
+                CHUNK_SIZE = 64 * 1024  # 64 KB
                 try:
-                    await self.ws.send_bytes(audio_chunk)
+                    for offset in range(0, len(audio_chunk), CHUNK_SIZE):
+                        await self.ws.send_bytes(audio_chunk[offset:offset + CHUNK_SIZE])
                     logger.debug("Audio chunk sent successfully")
-                except Exception as e:
-                    logger.error(f"Failed to send audio to client: {e}")
+                except (WebSocketDisconnect, RuntimeError) as e:
+                    logger.info(f"audio_output_worker: client disconnected ({e})")
                 
                 # Mark task as done
                 self.state.audio_output.task_done()
