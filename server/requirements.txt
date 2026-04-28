@@ -31,3 +31,4 @@ misaki[en]>=0.9.4   # English G2P / phonemiser required by Kokoro
 python-dotenv==1.0.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
+hypothesis==6.112.2
