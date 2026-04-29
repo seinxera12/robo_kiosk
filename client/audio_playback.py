@@ -41,7 +41,7 @@ class AudioPlayback:
     Handles WAV audio from TTS engines (CosyVoice, VOICEVOX).
     """
 
-    def __init__(self, sample_rate: int = 22050, channels: int = 1):
+    def __init__(self, sample_rate: int = 24000, channels: int = 1):
         self.sample_rate = sample_rate
         self.channels = channels
 
