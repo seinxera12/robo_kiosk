@@ -137,6 +137,21 @@ _BUILDING_OVERRIDE_PHRASES: list[str] = [
     "この建物", "この階", "このオフィス", "この場所",
 ]
 
+_CONVERSATIONAL_INPUTS: set[str] = {
+    # English greetings
+    "hello", "hi", "hey", "howdy", "greetings", "sup", "yo",
+    "good morning", "good afternoon", "good evening", "good night",
+    # English acknowledgements
+    "thanks", "thank you", "okay", "ok", "sure", "yes", "no",
+    "got it", "understood", "alright", "cool", "great", "nice",
+    # Japanese greetings
+    "こんにちは", "おはよう", "おはようございます", "こんばんは",
+    "やあ", "どうも",
+    # Japanese acknowledgements
+    "ありがとう", "ありがとうございます", "わかりました", "はい",
+    "いいえ", "なるほど", "そうですか", "了解",
+}
+
 
 # ---------------------------------------------------------------------------
 # Embedding-based fallback (optional, uses RAG embedder if available)
@@ -177,6 +192,16 @@ _GENERAL_ANCHORS = [
     "フランスの首都は何ですか",
     "Python関数の書き方を教えて",
     "量子コンピューティングを説明して",
+    # Short greeting-like phrases (secondary defense for embedding tier)
+    "hello",
+    "hi there",
+    "good morning",
+    "thanks",
+    "okay",
+    "sure",
+    "こんにちは",
+    "ありがとう",
+    "はい",
 ]
 
 
@@ -238,6 +263,17 @@ class IntentClassifier:
         """
         text_lower = text.lower().strip()
 
+        # --- Tier 0: conversational guard ---
+        # Intercept known greetings and acknowledgements before keyword/embedding stages
+        if self._is_conversational(text_lower):
+            logger.debug(f"Intent (conversational guard): GENERAL for '{text_lower[:20]}'")
+            return ClassificationResult(
+                intent=Intent.GENERAL,
+                confidence=0.95,
+                method="conversational_guard",
+                matched_keywords=[],
+            )
+
         # --- Tier 1: keyword rules ---
         result = self._keyword_classify(text_lower)
         if result.confidence >= 0.7:
@@ -278,6 +314,41 @@ class IntentClassifier:
             method="default",
             matched_keywords=[],
         )
+
+    # ------------------------------------------------------------------
+
+    def _is_conversational(self, text_lower: str) -> bool:
+        """
+        Returns True if the input is a conversational greeting or acknowledgement
+        that should be classified as GENERAL without going through keyword or
+        embedding tiers.
+
+        Two conditions trigger True:
+        1. Exact match in _CONVERSATIONAL_INPUTS (explicit list)
+        2. Short phrase (≤ 3 words, ≤ 15 chars) with no keyword hits
+           (catches unlisted greeting variants)
+
+        Returns False for all other inputs — including short phrases that DO
+        contain a keyword hit (e.g. "天気" must NOT be intercepted).
+        """
+        # Condition 1: explicit conversational input list
+        if text_lower in _CONVERSATIONAL_INPUTS:
+            return True
+
+        # Condition 2: short phrase with no keyword hits
+        # (catches unlisted greeting variants like "yo there", "hiya", etc.)
+        words = text_lower.split()
+        word_count = len(words)
+        char_count = len(text_lower)
+
+        if word_count <= 3 and char_count <= 15:
+            # Only intercept if there are NO keyword hits
+            has_building_hit = any(kw in text_lower for kw in _BUILDING_KEYWORDS)
+            has_search_hit = any(kw in text_lower for kw in _SEARCH_KEYWORDS)
+            if not has_building_hit and not has_search_hit:
+                return True
+
+        return False
 
     # ------------------------------------------------------------------
 
