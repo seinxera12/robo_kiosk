@@ -48,19 +48,19 @@ _BUILDING_KEYWORDS: set[str] = {
     # Navigation
     "floor", "floors", "level", "levels", "room", "rooms", "office",
     "elevator", "elevators", "lift", "lifts", "stairs", "staircase",
-    "escalator", "exit", "exits", "entrance", "lobby", "reception",
+    "escalator", "exit", "exits", "entrance", "lobby",
     # Facilities
-    "cafeteria", "canteen", "restaurant", "cafe", "coffee",
+    "cafeteria", "canteen",
     "toilet", "restroom", "bathroom", "washroom", "wc",
     "conference", "meeting room", "boardroom", "auditorium",
     "parking", "car park", "garage",
     "gym", "fitness", "medical", "clinic", "pharmacy",
-    "atm", "bank", "shop", "store", "retail",
-    "rooftop", "terrace", "garden",
+    "atm",
+    "rooftop",
     # Navigation phrases
-    "where is", "how do i get", "how to get", "directions to",
-    "located", "location of", "find the", "nearest", "closest",
-    "which floor", "what floor", "on the",
+    "where is", "directions to",
+    "location of",
+    "which floor", "what floor",
     # Japanese Navigation
     "階", "フロア", "部屋", "オフィス", "事務所",
     "エレベーター", "エレベータ", "階段", "エスカレーター",
@@ -136,6 +136,57 @@ _BUILDING_OVERRIDE_PHRASES: list[str] = [
     # Japanese equivalents
     "この建物", "この階", "このオフィス", "この場所",
 ]
+
+# ---------------------------------------------------------------------------
+# Context-requiring patterns for ambiguous building words
+# ---------------------------------------------------------------------------
+
+# Unambiguous building context anchors used in context patterns
+_BUILDING_CONTEXT_WORDS = (
+    r"floor|level|building|lobby|office|room|wing|block|site|"
+    r"cafeteria|canteen|toilet|restroom|bathroom|washroom|gym|fitness|"
+    r"clinic|pharmacy|conference|meeting|parking|elevator|lift|stairs|"
+    r"entrance|exit|rooftop|auditorium|atm|"
+    r"階|フロア|部屋|建物|ここ|この"
+)
+
+# Patterns that rescue ambiguous words when they appear in a building context.
+# Each pattern requires the ambiguous word to co-occur with a building context word.
+_BUILDING_CONTEXT_PATTERNS: list[re.Pattern] = [
+    # "restaurant on floor 3", "coffee in this building", "shop here"
+    re.compile(
+        r"\b(?:restaurant|cafe|coffee|shop|store|bank|garden|terrace|retail|reception)\b"
+        r".{0,30}"
+        r"\b(?:" + _BUILDING_CONTEXT_WORDS + r")\b",
+        re.IGNORECASE,
+    ),
+    # "floor 2 restaurant", "building cafe", "this shop"
+    re.compile(
+        r"\b(?:" + _BUILDING_CONTEXT_WORDS + r")\b"
+        r".{0,30}"
+        r"\b(?:restaurant|cafe|coffee|shop|store|bank|garden|terrace|retail|reception)\b",
+        re.IGNORECASE,
+    ),
+    # "nearest toilet", "closest restroom", "located near the cafeteria"
+    re.compile(
+        r"\b(?:nearest|closest|located)\b"
+        r".{0,20}"
+        r"\b(?:toilet|restroom|bathroom|washroom|cafeteria|canteen|gym|fitness|"
+        r"clinic|pharmacy|conference|meeting|parking|elevator|lift|stairs|"
+        r"entrance|exit|lobby|atm|トイレ|お手洗い|化粧室|カフェテリア|ジム)\b",
+        re.IGNORECASE,
+    ),
+    # "find the cafeteria", "how to get to the toilet", "how do i get to the gym"
+    re.compile(
+        r"\b(?:find the|how to get|how do i get)\b"
+        r".{0,30}"
+        r"\b(?:toilet|restroom|bathroom|washroom|cafeteria|canteen|gym|fitness|"
+        r"clinic|pharmacy|conference|meeting|parking|elevator|lift|stairs|"
+        r"entrance|exit|lobby|atm|トイレ|お手洗い|化粧室|カフェテリア|ジム)\b",
+        re.IGNORECASE,
+    ),
+]
+
 
 _CONVERSATIONAL_INPUTS: set[str] = {
     # English greetings
@@ -352,6 +403,23 @@ class IntentClassifier:
 
     # ------------------------------------------------------------------
 
+    def _building_context_match(self, text_lower: str) -> list[str]:
+        """
+        Returns a list of matched context pattern descriptions for text_lower.
+        Returns an empty list if no context patterns match.
+
+        Used by _keyword_classify to rescue ambiguous words (e.g. "restaurant",
+        "shop", "find the") when they appear alongside a building context word.
+        """
+        matched = []
+        for i, pattern in enumerate(_BUILDING_CONTEXT_PATTERNS):
+            m = pattern.search(text_lower)
+            if m:
+                matched.append(f"context_pattern_{i}:{m.group(0)[:30]}")
+        return matched
+
+    # ------------------------------------------------------------------
+
     def _keyword_classify(self, text_lower: str) -> ClassificationResult:
         # Check building override phrases first
         for phrase in _BUILDING_OVERRIDE_PHRASES:
@@ -367,6 +435,10 @@ class IntentClassifier:
         # Count keyword hits per intent
         building_hits = [kw for kw in _BUILDING_KEYWORDS if kw in text_lower]
         search_hits   = [kw for kw in _SEARCH_KEYWORDS   if kw in text_lower]
+
+        # Add context pattern hits to building score (rescues ambiguous words in building context)
+        context_hits = self._building_context_match(text_lower)
+        building_hits = building_hits + context_hits
 
         building_score = len(building_hits)
         search_score   = len(search_hits)
