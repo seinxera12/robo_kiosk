@@ -280,7 +280,16 @@ def build_messages(
             "content": "LANGUAGE CHECK: Your next response must be in English only."
         })
 
-    messages.append({"role": "user", "content": user_text})
+    # Prepend a hard language tag directly in the user message.
+    # Qwen (Chinese-first model) ignores system-level language rules for short
+    # or ambiguous inputs — but it reliably follows instructions embedded in
+    # the user turn itself.
+    if lang == "ja":
+        tagged_user_text = f"[RESPOND IN JAPANESE ONLY] {user_text}"
+    else:
+        tagged_user_text = f"[RESPOND IN ENGLISH ONLY] {user_text}"
+
+    messages.append({"role": "user", "content": tagged_user_text})
 
     # Log budget usage
     total_chars = sum(len(m["content"]) for m in messages)
