@@ -342,6 +342,14 @@ class PipelineWorker(QObject):
             self.transcript_ready.emit(text)
             self.status_changed.emit("thinking")
 
+    def send_session_reset(self) -> None:
+        """Send {"type": "session_reset"} to the server (main-thread safe)."""
+        if self._loop and not self._loop.is_closed() and self._ws:
+            asyncio.run_coroutine_threadsafe(
+                self._ws.send_json({"type": "session_reset"}),
+                self._loop,
+            )
+
     def stop(self):
         self._running = False
         if self._loop and self._ws:
@@ -385,11 +393,11 @@ class KioskMainWindow(QMainWindow):
         top_bar.setSpacing(8)
 
         self.status = StatusIndicator()
-        self.status.setFixedHeight(48)
+        self.status.setMinimumHeight(56)
         top_bar.addWidget(self.status, stretch=1)
 
         close_btn = QPushButton("✕")
-        close_btn.setFixedSize(44, 44)
+        close_btn.setFixedSize(56, 56)
         close_btn.setObjectName("closeButton")
         close_btn.setToolTip("Close application")
         close_btn.clicked.connect(self._on_close)
@@ -454,6 +462,14 @@ class KioskMainWindow(QMainWindow):
         self.listen_toggle.clicked.connect(self._on_toggle_listen)
         bottom_row.addWidget(self.listen_toggle)
 
+        # Clear Session button
+        self.clear_session_btn = QPushButton("🗑  Clear Session")
+        self.clear_session_btn.setObjectName("clearSessionButton")
+        self.clear_session_btn.setFixedHeight(44)
+        self.clear_session_btn.setEnabled(False)
+        self.clear_session_btn.clicked.connect(self._on_clear_session)
+        bottom_row.addWidget(self.clear_session_btn)
+
         layout.addLayout(bottom_row)
 
     def _load_stylesheet(self):
@@ -490,9 +506,18 @@ class KioskMainWindow(QMainWindow):
         self.keyboard.set_enabled(True)
         self.listen_toggle.setEnabled(True)
         self.speak_button.setEnabled(True)
+        self.clear_session_btn.setEnabled(True)
         self.mic_status.setText("🔇  Always Listen OFF — press Speak to talk")
         self.conversation.add_system_message("Connected. Speak or type your question.")
         logger.info("Pipeline connected")
+
+    def _on_clear_session(self):
+        """Clear conversation, reset worker state, send session_reset to server."""
+        self.conversation.clear()
+        self.conversation.add_system_message("Session cleared — ready for new demo.")
+        if self._worker is not None:
+            self._worker._response_started = False
+            self._worker.send_session_reset()
 
     def _on_status_changed(self, state: str):
         self.status.set_status(state)
@@ -662,6 +687,8 @@ class KioskMainWindow(QMainWindow):
         if self._thread:
             self._thread.quit()
             self._thread.wait(3000)
+        from PyQt6.QtWidgets import QApplication
+        QApplication.quit()
     # --------------------------------------------------------- Lifecycle
         from PyQt6.QtWidgets import QApplication
 

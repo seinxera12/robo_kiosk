@@ -14,10 +14,11 @@ QLabel {
     background-color: #161b27;
     border: 1px solid #1e2d4a;
     border-radius: 10px;
-    padding: 10px 20px;
+    padding: 12px 20px;
     font-size: 20px;
     font-weight: bold;
     color: #e8eeff;
+    min-height: 32px;
 }
 
 QLabel#micStatus {
@@ -205,8 +206,10 @@ QPushButton#toggleOffButton:hover {
     color: #c0ccee;
     border: 1px solid #263756;
     border-radius: 6px;
-    font-size: 16px;
+    font-size: 20px;
     font-weight: bold;
+    padding: 0px;
+    qproperty-text: "✕";
 }
 
 #closeButton:hover {
@@ -240,4 +243,27 @@ QScrollBar::handle:vertical:hover {
 QScrollBar::add-line:vertical,
 QScrollBar::sub-line:vertical {
     height: 0px;
+}
+
+/* ── Clear Session button — purple/violet ──────────────────── */
+QPushButton#clearSessionButton {
+    background-color: #2a1a3a;
+    color: #cba6f7;
+    border: 1px solid #4a2a6a;
+    font-size: 15px;
+    padding: 6px 16px;
+}
+
+QPushButton#clearSessionButton:hover {
+    background-color: #3a2a4a;
+    border-color: #7a4aaa;
+}
+
+QPushButton#clearSessionButton:pressed {
+    background-color: #1a0a2a;
+}
+
+QPushButton#clearSessionButton:disabled {
+    background-color: #161b27;
+    color: #2a3a55;
 }
