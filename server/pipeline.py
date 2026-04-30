@@ -558,11 +558,17 @@ class VoicePipeline:
                 # Update conversation history with this turn.
                 # Store the detected language alongside each entry so the
                 # prompt builder can strip out any cross-language contamination.
+                # Use the actual response language (not the user's detected language)
+                # for the assistant entry — the LLM may have responded in the wrong
+                # language, and tagging it with the user's lang would let it slip
+                # through the cross-language filter on the next turn.
+                from server.lang.detector import detect_from_unicode
+                response_lang = detect_from_unicode(full_response)
                 self.state.conversation_history.append(
                     {"role": "user", "content": transcript.text, "lang": transcript.language}
                 )
                 self.state.conversation_history.append(
-                    {"role": "assistant", "content": full_response, "lang": transcript.language}
+                    {"role": "assistant", "content": full_response, "lang": response_lang}
                 )
                 # Keep last 10 turns (20 messages = 10 user + 10 assistant)
                 if len(self.state.conversation_history) > 20:
