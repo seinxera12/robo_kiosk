@@ -210,29 +210,42 @@ async def synthesize(request: SynthesisRequest):
     )
 
 
-def audio_to_wav(audio_data: np.ndarray, sample_rate: int = 22050) -> bytes:
+def audio_to_wav(audio_data: np.ndarray, sample_rate: int = 24000) -> bytes:
     """
     Convert numpy audio to WAV bytes.
-    
+
     Args:
-        audio_data: Audio as numpy array
-        sample_rate: Sample rate (CosyVoice2 default is 22050 Hz)
-        
+        audio_data: Audio as numpy array (float32, expected range [-1.0, 1.0])
+        sample_rate: Sample rate (CosyVoice2 native output is 24000 Hz)
+
     Returns:
         WAV file bytes
     """
-    # Ensure audio is 1D
+    # Ensure audio is 1D float32
     if audio_data.ndim > 1:
         audio_data = audio_data.squeeze()
-    
-    # Convert to int16 PCM
-    audio_int16 = (audio_data * 32767).astype(np.int16)
-    
+    audio_data = audio_data.astype(np.float32)
+
+    # Normalize if any sample exceeds [-1.0, 1.0] to prevent int16 overflow/wrap-around.
+    # CosyVoice2 can produce values slightly outside this range, which causes harsh
+    # distortion when cast directly to int16 without clipping.
+    peak = np.max(np.abs(audio_data))
+    if peak > 1.0:
+        logger.debug(f"Audio peak {peak:.4f} exceeds 1.0 — normalizing to prevent clipping")
+        audio_data = audio_data / peak
+
+    # Apply a small headroom margin so the loudest frame never hits the int16 ceiling
+    audio_data = audio_data * 0.95
+
+    # Safe int16 conversion: scale → clip → cast.
+    # The clip is belt-and-suspenders against any floating-point edge cases.
+    audio_int16 = (audio_data * 32767).clip(-32768, 32767).astype(np.int16)
+
     # Write to WAV bytes
     wav_buffer = io.BytesIO()
     sf.write(wav_buffer, audio_int16, sample_rate, format='WAV', subtype='PCM_16')
     wav_buffer.seek(0)
-    
+
     return wav_buffer.read()
 
 

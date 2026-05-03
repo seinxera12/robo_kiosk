@@ -407,7 +407,7 @@ class KokoroJapaneseTTS:
     # ------------------------------------------------------------------
     # Model loading
     # ------------------------------------------------------------------
-
+    
     def _load_model_sync(self) -> None:
         """
         Load the Kokoro Japanese pipeline (blocking — runs in executor thread).

@@ -708,21 +708,15 @@ class VoicePipeline:
                     current_lang = "en"
                 
                 logger.info(f"TTS synthesis for language: {current_lang}")
-                tts_engine = self.tts_router.get_engine(lang=current_lang)
-                
-                if tts_engine is None:
-                    logger.warning(f"No TTS engine available for language: {current_lang}")
-                    continue
-                
-                # Fire synthesis as a background task so the tts_worker loop
-                # immediately returns to collecting the next sentence's tokens.
-                # This pipelines synthesis of sentence N+1 with playback of N.
-                # The task is registered in _synthesis_tasks so handle_interrupt
-                # can cancel it and wait for it to finish before clearing the
-                # interrupt flag — preventing stale audio from leaking through.
-                async def _synthesize_and_queue(text: str, engine) -> None:
+
+                # Use router-level synthesize_stream so per-request fallback
+                # works automatically: if KokoClone service is down, the router
+                # transparently retries with KokoroJP, then VOICEVOX, etc.
+                # No need to call get_engine() — the router handles selection
+                # and fallback internally.
+                async def _synthesize_and_queue(text: str, lang: str) -> None:
                     try:
-                        async for audio_chunk in engine.synthesize_stream(text):
+                        async for audio_chunk in self.tts_router.synthesize_stream(text, lang):
                             # Abort immediately if an interrupt arrived
                             if self.state.interrupt_event.is_set():
                                 logger.info("TTS synthesis aborted by interrupt")
@@ -738,7 +732,7 @@ class VoicePipeline:
                         self._synthesis_tasks.discard(asyncio.current_task())
                     logger.info("TTS synthesis complete for sentence")
 
-                task = asyncio.create_task(_synthesize_and_queue(buffer, tts_engine))
+                task = asyncio.create_task(_synthesize_and_queue(buffer, current_lang))
                 self._synthesis_tasks.add(task)
 
             except asyncio.CancelledError:
