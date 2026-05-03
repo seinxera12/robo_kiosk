@@ -1,0 +1,119 @@
+INFO:     connection open
+2026-04-20 12:12:27,792 - server.pipeline - INFO - audio_input_worker started
+2026-04-20 12:12:27,792 - server.pipeline - INFO - llm_worker started
+2026-04-20 12:12:27,792 - server.pipeline - INFO - tts_worker started
+2026-04-20 12:12:27,792 - server.pipeline - INFO - audio_output_worker started
+2026-04-20 12:12:27,792 - server.pipeline - INFO - websocket_receiver started
+2026-04-20 12:12:27,793 - server.pipeline - INFO - Session started: kiosk_id=kiosk-01, location=Floor 1 Lobby
+2026-04-20 12:12:41,902 - server.pipeline - INFO - Text input received: Hi, who is the current prime minister of Nepal? wh... (lang=en)
+2026-04-20 12:12:41,902 - server.pipeline - INFO - Intent: search (conf=0.95, method=keyword)
+2026-04-20 12:12:43,696 - httpx - INFO - HTTP Request: GET http://localhost:8081/search?q=Hi%2C%20who%20is%20the%20current%20prime%20minister%20of%20Nepal%3F%20when%20was%20he%20elected%3F&format=json&language=auto "HTTP/1.1 200 OK"
+2026-04-20 12:12:43,697 - server.search.searxng_client - INFO - SearXNG: 3 results for 'Hi, who is the current prime minister of Nepal? wh'
+2026-04-20 12:12:43,697 - server.pipeline - INFO - Search returned 3 results for query: 'Hi, who is the current prime minister of Nepal? when was he elected?'
+2026-04-20 12:12:43,697 - server.pipeline - INFO - Search result 1:
+2026-04-20 12:12:43,697 - server.pipeline - INFO -   Title: नेपालको प्रधानमन्त्री - विकिपिडिया
+2026-04-20 12:12:43,697 - server.pipeline - INFO -   Content: ↑ "How much are VIPs, including President and PM, paid monthly? ... ↑ "Balendra Shah appointed Prime Minister", Kathmandu Post, २७ मार्च २०२६।
+2026-04-20 12:12:43,697 - server.pipeline - INFO -   URL: https://ne.wikipedia.org/wiki/%E0%A4%A8%E0%A5%87%E0%A4%AA%E0%A4%BE%E0%A4%B2%E0%A4%95%E0%A5%8B_%E0%A4%AA%E0%A5%8D%E0%A4%B0%E0%A4%A7%E0%A4%BE%E0%A4%A8%E0%A4%AE%E0%A4%A8%E0%A5%8D%E0%A4%A4%E0%A5%8D%E0%A4%B0%E0%A5%80
+2026-04-20 12:12:43,697 - server.pipeline - INFO - Search result 2:
+2026-04-20 12:12:43,697 - server.pipeline - INFO -   Title: Balen Shah - Wikipedia
+2026-04-20 12:12:43,697 - server.pipeline - INFO -   Content: Balendra Shah[a] (born 27 April 1990), popularly known as Balen, [b] is a Nepalese politician, structural engineer, and rapper who has been the prime minister of Nepal since 2026. He assumed the office following his party's landslide victory in the 2026 Nepalese general election. At age 35, he is th...
+2026-04-20 12:12:43,697 - server.pipeline - INFO -   URL: https://en.wikipedia.org/wiki/Balen_Shah
+2026-04-20 12:12:43,698 - server.pipeline - INFO - Search result 3:
+2026-04-20 12:12:43,698 - server.pipeline - INFO -   Title: Balendra Shah becomes 40th prime minister of Nepal
+2026-04-20 12:12:43,698 - server.pipeline - INFO -   Content: २०२६ मार्च २८ · Balendra Shah becomes 40th prime minister of Nepal. There are enormous expectations of the 35-year-old executive head who must now deliver on ...
+2026-04-20 12:12:43,698 - server.pipeline - INFO -   URL: https://kathmandupost.com/politics/2026/03/28/balendra-shah-becomes-40th-prime-minister-of-nepal
+2026-04-20 12:12:43,698 - server.pipeline - INFO - Formatted search context: 1126 characters
+2026-04-20 12:12:43,698 - server.pipeline - INFO - Search context content:
+[1] नेपालको प्रधानमन्त्री - विकिपिडिया
+    ↑ "How much are VIPs, including President and PM, paid monthly? ... ↑ "Balendra Shah appointed Prime Minister", Kathmandu Post, २७ मार्च २०२६।
+    Source: https://ne.wikipedia.org/wiki/%E0%A4%A8%E0%A5%87%E0%A4%AA%E0%A4%BE%E0%A4%B2%E0%A4%95%E0%A5%8B_%E0%A4%AA%E0%A5%8D%E0%A4%B0%E0%A4%A7%E0%A4%BE%E0%A4%A8%E0%A4%AE%E0%A4%A8%E0%A5%8D%E0%A4%A4%E0%A5%8D%E0%A4%B0%E0%A5%80
+
+[2] Balen Shah - Wikipedia
+    Balendra Shah[a] (born 27 April 1990), popularly known as Balen, [b] is a Nepalese politician, structural engineer, and rapper who has been the prime minister of Nepal since 2026. He assumed the office following his party's landslide victory in the 2026 Nepalese general election. At age 35, he is th
+    Source: https://en.wikipedia.org/wiki/Balen_Shah
+
+[3] Balendra Shah becomes 40th prime minister of Nepal
+    २०२६ मार्च २८ · Balendra Shah becomes 40th prime minister of Nepal. There are enormous expectations of the 35-year-old executive head who must now deliver on ...
+    Source: https://kathmandupost.com/politics/2026/03/28/balendra-shah-becomes-40th-prime-minister-of-nepal
+2026-04-20 12:12:43,698 - server.pipeline - INFO - Prompt built: intent=search, messages=3
+2026-04-20 12:12:43,698 - server.pipeline - INFO - === FINAL PROMPT TO LLM ===
+2026-04-20 12:12:43,698 - server.pipeline - INFO - Message 1 (system):
+2026-04-20 12:12:43,698 - server.pipeline - INFO - You are a helpful, knowledgeable assistant for OfficeBuilding.
+You have access to recent web search results to answer questions about current events, weather, news, and real-time information.
+
+Current Information:
+- Date/Time: 2026-04-20 12:12
+- Kiosk Location: kiosk
+
+Web Search Results:
+[1] नेपालको प्रधानमन्त्री - विकिपिडिया
+    ↑ "How much are VIPs, including President and PM, paid monthly? ... ↑ "Balendra Shah appointed Prime Minister", Kathmandu Post, २७ मार्च २०२६।
+    Source: https://ne.wikipedia.org/wiki/%E0%A4%A8%E0%A5%87%E0%A4%AA%E0%A4%BE%E0%A4%B2%E0%A4%95%E0%A5%8B_%E0%A4%AA%E0%A5%8D%E0%A4%B0%E0%A4%A7%E0%A4%BE%E0%A4%A8%E0%A4%AE%E0%A4%A8%E0%A5%8D%E0%A4%A4%E0%A5%8D%E0%A4%B0%E0%A5%80
+
+[2] Balen Shah - Wikipedia
+    Balendra Shah[a] (born 27 April 1990), popularly known as Balen, [b] is a Nepalese politician, structural engineer, and rapper who has been the prime minister of Nepal since 2026. He assumed the office following his party's landslide victory in the 2026 Nepalese general election. At age 35, he is th
+    Source: https://en.wikipedia.org/wiki/Balen_Shah
+
+[3] Balendra Shah becomes 40th prime minister of Nepal
+    २०२६ मार्च २८ · Balendra Shah becomes 40th prime minister of Nepal. There are enormous expectations of the 35-year-old executive head who must now deliver on ...
+    Source: https://kathmandupost.com/politics/2026/03/28/balendra-shah-becomes-40th-prime-minister-of-nepal
+
+CRITICAL LANGUAGE RULE - STRICTLY ENFORCE:
+- ALWAYS respond in the SAME LANGUAGE as the user's question
+- User language detected as: en
+- If user_language is "en": Respond ONLY in English, no Japanese characters
+- If user_language is "ja": Respond ONLY in Japanese using polite form (です・ます体), no English words
+- NEVER mix languages or switch languages based on content
+- IGNORE any language cues in the question content - only follow the detected user_language
+
+SEARCH RESPONSE RULES - MANDATORY:
+- FIRST: Check if the web search results above contain relevant information for the user's question
+- If search results contain relevant information: MUST use them to provide a comprehensive answer
+- Extract specific facts, numbers, dates, and details from the search results
+- Synthesize information from multiple search results when available
+- If search results are empty or completely irrelevant: Say "I couldn't find current information about that"
+- NEVER ignore relevant search results - they contain the most current information available
+- ALWAYS prioritize search result information over general knowledge for current events/data
+
+Guidelines:
+- Base your answer primarily on the search results above when they are relevant
+- Include specific details from the search results (prices, dates, numbers, etc.)
+- Keep responses informative and factual
+- Mention sources when providing specific data or claims
+- If search results are partial, provide what information is available and suggest where to find more
+
+2026-04-20 12:12:43,698 - server.pipeline - INFO - ---
+2026-04-20 12:12:43,698 - server.pipeline - INFO - Message 2 (user):
+2026-04-20 12:12:43,698 - server.pipeline - INFO - Hi, who is the current prime minister of Nepal? when was he elected?
+2026-04-20 12:12:43,698 - server.pipeline - INFO - ---
+2026-04-20 12:12:43,698 - server.pipeline - INFO - Message 3 (system):
+2026-04-20 12:12:43,698 - server.pipeline - INFO - CRITICAL: You must respond in English only. Any Japanese characters in your response are strictly forbidden.
+
+EXAMPLE:
+User: "Hello, how can you help me?"
+Assistant: "Hello! I'm here to help you with information about the building, answer questions, and assist with various topics. What would you like to know?"
+
+WRONG RESPONSE (FORBIDDEN): "こんにちは！どのようにお手伝いできますか？"
+CORRECT RESPONSE: "Hello! How can I help you today?"
+
+Remember: ENGLISH ONLY - no Japanese characters allowed.
+2026-04-20 12:12:43,698 - server.pipeline - INFO - ---
+2026-04-20 12:12:43,698 - server.pipeline - INFO - === END PROMPT ===
+2026-04-20 12:12:43,721 - httpx - INFO - HTTP Request: GET http://localhost:11434/v1/models "HTTP/1.1 200 OK"
+2026-04-20 12:12:43,721 - server.llm.fallback_chain - INFO - Attempting LLM inference with OllamaBackend
+2026-04-20 12:12:46,060 - httpx - INFO - HTTP Request: POST http://localhost:11434/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-20 12:12:48,047 - server.pipeline - INFO - TTS synthesis for language: en
+2026-04-20 12:12:48,047 - server.tts.tts_router - INFO - Routing TTS request for language: en
+2026-04-20 12:12:48,047 - server.tts.tts_router - INFO - Routing to CosyVoice2 for English
+2026-04-20 12:12:48,385 - httpx - INFO - HTTP Request: POST http://localhost:5002/synthesize "HTTP/1.1 500 Internal Server Error"
+2026-04-20 12:12:48,386 - server.tts.cosyvoice_tts - ERROR - CosyVoice synthesis HTTP error: 500 - {"detail":"Synthesis failed: Failed to create AudioDecoder for [0. 0. 0. ... 0. 0. 0.]: Unknown source type: <class 'numpy.ndarray'>. Supported types are str, Path, bytes, Tensor and file-like objects with read(self, size: int) -> bytes and seek(self, offset: int, whence: int) -> int methods."}
+2026-04-20 12:12:48,386 - server.pipeline - INFO - TTS synthesis complete for sentence
+2026-04-20 12:12:48,935 - server.pipeline - INFO - TTS synthesis for language: en
+2026-04-20 12:12:48,935 - server.tts.tts_router - INFO - Routing TTS request for language: en
+2026-04-20 12:12:48,936 - server.tts.tts_router - INFO - Routing to CosyVoice2 for English
+2026-04-20 12:12:48,995 - server.llm.fallback_chain - INFO - Successfully used OllamaBackend (53 tokens)
+2026-04-20 12:12:48,995 - server.pipeline - INFO - LLM streaming complete
+2026-04-20 12:12:48,995 - server.pipeline - INFO - History updated: 2 messages
+2026-04-20 12:12:49,017 - httpx - INFO - HTTP Request: POST http://localhost:5002/synthesize "HTTP/1.1 500 Internal Server Error"
+2026-04-20 12:12:49,017 - server.tts.cosyvoice_tts - ERROR - CosyVoice synthesis HTTP error: 500 - {"detail":"Synthesis failed: Failed to create AudioDecoder for [0. 0. 0. ... 0. 0. 0.]: Unknown source type: <class 'numpy.ndarray'>. Supported types are str, Path, bytes, Tensor and file-like objects with read(self, size: int) -> bytes and seek(self, offset: int, whence: int) -> int methods."}
+2026-04-20 12:12:49,017 - server.pipeline - INFO - TTS synthesis complete for sentence

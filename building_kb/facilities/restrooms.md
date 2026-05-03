@@ -2,7 +2,7 @@
 
 ## Floor 1 (Ground Floor)
 - Men's restroom: Near east elevator bank
-- Women's restroom: Near east elevator bank
+- Women's restroom: Near west elevator bank
 - Accessible restroom: Near reception desk
 - Family restroom: Near main entrance
 
@@ -13,16 +13,16 @@
 
 ## Floor 3
 - Men's restroom: Near east elevator bank
-- Women's restroom: Near east elevator bank
+- Women's restroom: Near west elevator bank
 - Accessible restroom: Near east elevator bank
 
 ## Floor 4
 - Men's restroom: Near east elevator bank
-- Women's restroom: Near east elevator bank
+- Women's restroom: Near west elevator bank
 
 ## Floor 5
 - Men's restroom: Near east elevator bank
-- Women's restroom: Near east elevator bank
+- Women's restroom: Near west elevator bank
 - Executive restroom: Near executive offices (access restricted)
 
 ## Accessibility Features

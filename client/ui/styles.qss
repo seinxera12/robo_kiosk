@@ -1,86 +1,269 @@
-/* Qt Stylesheet for Voice Kiosk Chatbot */
+/* ============================================================
+   Voice Kiosk Assistant — Dark Blue Theme
+   ============================================================ */
 
-/* Main window */
-QMainWindow {
-    background-color: #f5f5f5;
+/* ── Window background ─────────────────────────────────────── */
+QMainWindow, QWidget {
+    background-color: #0d1117;
+    color: #f0f4ff;
+    font-family: "Noto Sans CJK JP", "Yu Gothic UI", "Meiryo UI", "Segoe UI", "Noto Sans", Arial, sans-serif;
 }
 
-/* Conversation widget */
-QTextEdit {
-    background-color: white;
-    border: 2px solid #ddd;
-    border-radius: 8px;
-    padding: 16px;
-    font-size: 18px;
-    font-family: "Segoe UI", Arial, sans-serif;
-}
-
-/* Status indicator */
+/* ── Status indicator label ────────────────────────────────── */
 QLabel {
-    padding: 12px;
-    background-color: white;
-    border: 2px solid #ddd;
-    border-radius: 8px;
-    margin: 8px;
+    background-color: #161b27;
+    border: 1px solid #1e2d4a;
+    border-radius: 10px;
+    padding: 12px 20px;
+    font-size: 20px;
+    font-weight: bold;
+    color: #e8eeff;
+    min-height: 32px;
 }
 
-/* Input field */
+QLabel#micStatus {
+    background-color: transparent;
+    border: none;
+    font-size: 15px;
+    font-weight: normal;
+    color: #8899bb;
+    padding: 4px 0px;
+}
+
+/* ── Conversation area ─────────────────────────────────────── */
+QTextEdit {
+    background-color: #0a0f1a;
+    border: 1px solid #1e2d4a;
+    border-radius: 12px;
+    padding: 20px;
+    font-size: 19px;
+    line-height: 1.6;
+    color: #f0f4ff;
+    selection-background-color: #2a4a8a;
+}
+
+/* ── Text input field ──────────────────────────────────────── */
 QLineEdit {
-    background-color: white;
-    border: 2px solid #ddd;
-    border-radius: 8px;
-    padding: 12px;
+    background-color: #161b27;
+    border: 2px solid #1e2d4a;
+    border-radius: 10px;
+    padding: 10px 16px;
     font-size: 18px;
-    font-family: "Segoe UI", Arial, sans-serif;
+    color: #f0f4ff;
 }
 
 QLineEdit:focus {
-    border: 2px solid #4CAF50;
+    border: 2px solid #4d8fff;
+    background-color: #1a2035;
 }
 
-/* Buttons */
+QLineEdit:disabled {
+    background-color: #0d1117;
+    color: #3a4a66;
+    border-color: #161b27;
+}
+
+QLineEdit::placeholder {
+    color: #3a4a66;
+}
+
+/* ── Buttons — base (blue) ─────────────────────────────────── */
 QPushButton {
-    background-color: #4CAF50;
-    color: white;
+    background-color: #1a5cd4;
+    color: #ffffff;
     border: none;
-    border-radius: 8px;
-    padding: 12px 24px;
-    font-size: 18px;
+    border-radius: 10px;
+    padding: 10px 20px;
+    font-size: 17px;
     font-weight: bold;
-    min-width: 120px;
 }
 
 QPushButton:hover {
-    background-color: #45a049;
+    background-color: #2a6de8;
 }
 
 QPushButton:pressed {
-    background-color: #3d8b40;
+    background-color: #1248b0;
 }
 
 QPushButton:disabled {
-    background-color: #cccccc;
-    color: #666666;
+    background-color: #161b27;
+    color: #3a4a66;
 }
 
-/* Scrollbar */
+/* ── Send / Submit button — vivid cyan ─────────────────────── */
+QPushButton#sendButton {
+    background-color: #0097a7;
+    color: #ffffff;
+}
+
+QPushButton#sendButton:hover {
+    background-color: #00b8cc;
+}
+
+QPushButton#sendButton:pressed {
+    background-color: #007a87;
+}
+
+QPushButton#sendButton:disabled {
+    background-color: #161b27;
+    color: #3a4a66;
+}
+
+/* ── Clear button — muted slate ────────────────────────────── */
+QPushButton#clearButton {
+    background-color: #1e2d4a;
+    color: #c0ccee;
+}
+
+QPushButton#clearButton:hover {
+    background-color: #263756;
+}
+
+QPushButton#clearButton:pressed {
+    background-color: #18243a;
+}
+
+QPushButton#clearButton:disabled {
+    background-color: #161b27;
+    color: #2a3a55;
+}
+
+/* ── Speak button — vivid coral ───────────────────────────── */
+QPushButton#speakButton {
+    background-color: #e63462;
+    color: #ffffff;
+    font-size: 15px;
+    padding: 6px 16px;
+}
+
+QPushButton#speakButton:hover {
+    background-color: #ff4d7a;
+}
+
+QPushButton#speakButton:pressed {
+    background-color: #c0254f;
+}
+
+QPushButton#speakButton:disabled {
+    background-color: #161b27;
+    color: #3a4a66;
+}
+
+/* ── Stop button — vivid amber ─────────────────────────────── */
+QPushButton#stopButton {
+    background-color: #e67e00;
+    color: #ffffff;
+    font-size: 15px;
+    padding: 6px 16px;
+}
+
+QPushButton#stopButton:hover {
+    background-color: #ff9510;
+}
+
+QPushButton#stopButton:pressed {
+    background-color: #c06800;
+}
+
+QPushButton#stopButton:disabled {
+    background-color: #161b27;
+    color: #3a4a66;
+}
+
+/* ── Listen toggle — ON state (vivid green) ────────────────── */
+QPushButton#toggleOnButton {
+    background-color: #1db954;
+    color: #ffffff;
+    font-size: 15px;
+    padding: 6px 16px;
+}
+
+QPushButton#toggleOnButton:hover {
+    background-color: #25d265;
+}
+
+QPushButton#toggleOnButton:pressed {
+    background-color: #169a42;
+}
+
+/* ── Listen toggle — OFF state (muted slate) ───────────────── */
+QPushButton#toggleOffButton {
+    background-color: #1e2d4a;
+    color: #8899bb;
+    font-size: 15px;
+    padding: 6px 16px;
+}
+
+QPushButton#toggleOffButton:hover {
+    background-color: #263756;
+    color: #c0ccee;
+}
+
+/* ── Close button ──────────────────────────────────────────── */
+#closeButton {
+    background-color: #1e2d4a;
+    color: #c0ccee;
+    border: 1px solid #263756;
+    border-radius: 6px;
+    font-size: 20px;
+    font-weight: bold;
+    padding: 0px;
+    qproperty-text: "✕";
+}
+
+#closeButton:hover {
+    background-color: #e63462;
+    color: #ffffff;
+    border-color: #e63462;
+}
+
+#closeButton:pressed {
+    background-color: #c0254f;
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────── */
 QScrollBar:vertical {
     border: none;
-    background: #f0f0f0;
-    width: 12px;
+    background: #0a0f1a;
+    width: 10px;
     margin: 0px;
 }
 
 QScrollBar::handle:vertical {
-    background: #888;
-    border-radius: 6px;
-    min-height: 20px;
+    background: #1e2d4a;
+    border-radius: 5px;
+    min-height: 24px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: #555;
+    background: #2a4470;
 }
 
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
     height: 0px;
+}
+
+/* ── Clear Session button — purple/violet ──────────────────── */
+QPushButton#clearSessionButton {
+    background-color: #2a1a3a;
+    color: #cba6f7;
+    border: 1px solid #4a2a6a;
+    font-size: 15px;
+    padding: 6px 16px;
+}
+
+QPushButton#clearSessionButton:hover {
+    background-color: #3a2a4a;
+    border-color: #7a4aaa;
+}
+
+QPushButton#clearSessionButton:pressed {
+    background-color: #1a0a2a;
+}
+
+QPushButton#clearSessionButton:disabled {
+    background-color: #161b27;
+    color: #2a3a55;
 }

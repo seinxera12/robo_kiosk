@@ -64,7 +64,7 @@ class OllamaBackend:
             messages=messages,
             stream=True,
             max_tokens=512,
-            temperature=0.7
+            temperature=0.3
         )
         
         token_count = 0

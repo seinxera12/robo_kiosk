@@ -17,14 +17,14 @@ The ground floor is the main entrance level with lobby, reception, and public fa
 - Package delivery and pickup
 
 ### Cafeteria
-- Located on the west side of the building
-- Open 7:00 AM - 7:00 PM
+- Located on the west side of the building near the lobby
+- Open 7:00 AM - 8:00 PM
 - Seating capacity: 150 people
 - Near the main elevators
 
 ### Restrooms
 - Men's restroom: Near the east elevator bank
-- Women's restroom: Near the east elevator bank
+- Women's restroom: Near the west elevator bank
 - Accessible restroom: Near reception
 
 ### Emergency Exits

@@ -1,6 +1,6 @@
 # Environment variables
 .env
-.env.local
+.env.localf
 
 # Python cache
 __pycache__/
@@ -12,6 +12,7 @@ __pycache__/
 models/
 
 # Virtual environment
+client-venv/
 venv/
 env/
 ENV/
@@ -40,3 +41,7 @@ chroma/
 *.tmp
 *.bak
 .env.local
+
+# Audio Tests Files
+*.wav
+

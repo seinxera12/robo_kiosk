@@ -8,6 +8,7 @@ Requirements: 3.1, 3.7, 23.1, 23.4, 23.5
 """
 
 import logging
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -16,11 +17,18 @@ from fastapi.responses import JSONResponse
 
 from server.config import Config
 
-# Configure logging
+# Configure logging with UTF-8 support
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
 )
+# Ensure UTF-8 encoding for stdout
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,19 +40,39 @@ app_state = {}
 async def lifespan(app: FastAPI):
     """
     Application lifespan manager.
-    
-    Initializes configuration and resources on startup,
-    cleans up on shutdown.
+
+    Pre-loads all heavy components (Whisper, LLM chain, RAG, TTS) at startup
+    so WebSocket connections are accepted instantly without timeout.
     """
-    # Startup: Load configuration
     logger.info("Starting voice chatbot server...")
     config = Config.from_env()
     app_state["config"] = config
-    logger.info(f"Server configured: host={config.host}, port={config.port}")
-    
+
+    # --- Pre-load all heavy components here ---
+    logger.info("Pre-loading STT (Whisper)...")
+    from server.stt.whisper_stt import WhisperSTT
+    app_state["stt"] = WhisperSTT(
+        model_size=config.stt_model,
+        device=config.stt_device,
+        compute_type=config.stt_compute_type
+    )
+
+    logger.info("Pre-loading LLM fallback chain...")
+    from server.llm.fallback_chain import LLMFallbackChain
+    app_state["llm_chain"] = LLMFallbackChain(config)
+
+    logger.info("Pre-loading RAG knowledge base...")
+    from server.rag.chroma_store import BuildingKB
+    app_state["rag"] = BuildingKB(config.chromadb_path)
+
+    logger.info("Pre-loading TTS router...")
+    from server.tts.tts_router import TTSRouter
+    app_state["tts_router"] = TTSRouter(config)
+
+    logger.info(f"Server ready — host={config.host}, port={config.port}")
+
     yield
-    
-    # Shutdown: Cleanup resources
+
     logger.info("Shutting down voice chatbot server...")
     app_state.clear()
 
@@ -80,6 +108,7 @@ async def health_check():
         JSONResponse: Health status with server information
     """
     config = app_state.get("config")
+    tts_router = app_state.get("tts_router")
     
     health_status = {
         "status": "healthy",
@@ -94,58 +123,68 @@ async def health_check():
             "tts_en_engine": config.tts_en_engine,
         }
     
+    # Check TTS engine status
+    if tts_router:
+        tts_status = {}
+        
+        # Check CosyVoice (English)
+        if tts_router.cosyvoice:
+            try:
+                is_ready = await tts_router.cosyvoice.health_check()
+                tts_status["cosyvoice_en"] = "ready" if is_ready else "not_loaded"
+            except Exception as e:
+                tts_status["cosyvoice_en"] = f"error: {str(e)}"
+        else:
+            tts_status["cosyvoice_en"] = "not_initialized"
+        
+        # Check VOICEVOX (Japanese)
+        if tts_router.voicevox:
+            try:
+                is_ready = await tts_router.voicevox.health_check()
+                tts_status["voicevox_ja"] = "ready" if is_ready else "unavailable"
+            except Exception as e:
+                tts_status["voicevox_ja"] = f"error: {str(e)}"
+        else:
+            tts_status["voicevox_ja"] = "not_initialized"
+        
+        health_status["tts"] = tts_status
+    
     logger.debug("Health check requested")
     return JSONResponse(content=health_status, status_code=200)
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """
-    WebSocket endpoint for real-time voice interaction (Requirements 3.1, 3.7).
-    
-    Handles bidirectional communication:
-    - Upstream: Binary PCM16 audio frames, JSON control messages
-    - Downstream: Binary Opus audio frames, JSON event messages
-    
-    Connection lifecycle:
-    1. Accept connection
-    2. Wait for session_start message
-    3. Process audio/text inputs
-    4. Stream responses
-    5. Handle disconnection gracefully
-    
-    Args:
-        websocket: WebSocket connection instance
-    """
     client_id = f"{websocket.client.host}:{websocket.client.port}"
     logger.info(f"WebSocket connection attempt from {client_id}")
-    
+
     try:
-        # Accept WebSocket connection (Requirement 3.1)
         await websocket.accept()
         logger.info(f"WebSocket connection established: {client_id}")
-        
-        # Initialize pipeline for this connection
+
         from server.pipeline import VoicePipeline
-        config = app_state.get("config")
-        
-        pipeline = VoicePipeline(websocket, config)
-        
-        # Run pipeline until disconnect
+        pipeline = VoicePipeline(
+            websocket=websocket,
+            config=app_state["config"],
+            stt=app_state["stt"],
+            llm_chain=app_state["llm_chain"],
+            rag=app_state["rag"],
+            tts_router=app_state["tts_router"],
+        )
+
         await pipeline.run()
-    
+
     except WebSocketDisconnect:
-        logger.info(f"WebSocket connection closed during handshake: {client_id}")
-    
+        logger.info(f"WebSocket disconnected: {client_id}")
+
     except Exception as e:
         logger.error(f"WebSocket error for {client_id}: {e}", exc_info=True)
         try:
-            await websocket.close(code=1011, reason=f"Server error: {str(e)}")
+            await websocket.close(code=1011, reason=str(e))
         except Exception:
-            pass  # Connection already closed
-    
+            pass
+
     finally:
-        # Cleanup: Clear conversation history and resources (Requirement 3.7)
         logger.info(f"Cleaning up resources for {client_id}")
 
 
