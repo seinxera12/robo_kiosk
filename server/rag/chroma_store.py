@@ -25,7 +25,6 @@ class DocumentChunk:
     floor: Optional[int]
     type: Literal["floor", "facility", "room", "emergency"]
 
-
 class BuildingKB:
     """
     ChromaDB-backed building knowledge base.

@@ -1,0 +1,62 @@
+2026-04-20 12:05:59,903 - chromadb.segment.impl.vector.local_persistent_hnsw - WARNING - Add of existing embedding ID: chunk_0
+2026-04-20 12:05:59,904 - chromadb.segment.impl.vector.local_persistent_hnsw - WARNING - Add of existing embedding ID: chunk_1
+2026-04-20 12:05:59,904 - chromadb.segment.impl.vector.local_persistent_hnsw - WARNING - Add of existing embedding ID: chunk_2
+2026-04-20 12:05:59,904 - chromadb.segment.impl.vector.local_persistent_hnsw - WARNING - Add of existing embedding ID: chunk_3
+2026-04-20 12:05:59,904 - chromadb.segment.impl.vector.local_persistent_hnsw - WARNING - Add of existing embedding ID: chunk_4
+2026-04-20 12:05:59,904 - chromadb.segment.impl.vector.local_persistent_hnsw - WARNING - Add of existing embedding ID: chunk_5
+2026-04-20 12:05:59,904 - chromadb.segment.impl.vector.local_persistent_hnsw - WARNING - Add of existing embedding ID: chunk_6
+2026-04-20 12:05:59,904 - chromadb.segment.impl.vector.local_persistent_hnsw - WARNING - Add of existing embedding ID: chunk_7
+2026-04-20 12:05:59,904 - chromadb.segment.impl.vector.local_persistent_hnsw - WARNING - Add of existing embedding ID: chunk_8
+2026-04-20 12:05:59,904 - chromadb.segment.impl.vector.local_persistent_hnsw - WARNING - Add of existing embedding ID: chunk_9
+2026-04-20 12:05:59,904 - chromadb.segment.impl.vector.local_persistent_hnsw - WARNING - Add of existing embedding ID: chunk_10
+2026-04-20 12:05:59,904 - chromadb.segment.impl.vector.local_persistent_hnsw - WARNING - Add of existing embedding ID: chunk_11
+2026-04-20 12:05:59,908 - chromadb.telemetry.product.posthog - ERROR - Failed to send telemetry event CollectionQueryEvent: capture() takes 1 positional argument but 3 were given
+2026-04-20 12:05:59,908 - server.pipeline - INFO - RAG context: 1292 chars
+2026-04-20 12:05:59,910 - server.pipeline - INFO - Prompt built: intent=building, messages=3
+2026-04-20 12:05:59,966 - httpx - INFO - HTTP Request: GET http://localhost:11434/v1/models "HTTP/1.1 200 OK"
+2026-04-20 12:05:59,967 - server.llm.fallback_chain - INFO - Attempting LLM inference with OllamaBackend
+2026-04-20 12:06:05,276 - httpx - INFO - HTTP Request: POST http://localhost:11434/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-20 12:06:06,842 - server.pipeline - INFO - TTS synthesis for language: en
+2026-04-20 12:06:06,843 - server.tts.tts_router - INFO - Routing TTS request for language: en
+2026-04-20 12:06:06,843 - server.tts.tts_router - INFO - Routing to CosyVoice2 for English
+2026-04-20 12:06:07,440 - server.llm.fallback_chain - INFO - Successfully used OllamaBackend (40 tokens)
+2026-04-20 12:06:07,441 - server.pipeline - INFO - LLM streaming complete
+2026-04-20 12:06:07,441 - server.pipeline - INFO - History updated: 2 messages
+2026-04-20 12:06:08,820 - httpx - INFO - HTTP Request: POST http://localhost:5002/synthesize "HTTP/1.1 500 Internal Server Error"
+2026-04-20 12:06:08,820 - server.tts.cosyvoice_tts - ERROR - CosyVoice synthesis HTTP error: 500 - {"detail":"Synthesis failed: Failed to create AudioDecoder for [0. 0. 0. ... 0. 0. 0.]: Unknown source type: <class 'numpy.ndarray'>. Supported types are str, Path, bytes, Tensor and file-like objects with read(self, size: int) -> bytes and seek(self, offset: int, whence: int) -> int methods."}
+2026-04-20 12:06:08,821 - server.pipeline - INFO - TTS synthesis complete for sentence
+2026-04-20 12:06:08,821 - server.pipeline - INFO - TTS synthesis for language: en
+2026-04-20 12:06:08,821 - server.tts.tts_router - INFO - Routing TTS request for language: en
+2026-04-20 12:06:08,821 - server.tts.tts_router - INFO - Routing to CosyVoice2 for English
+2026-04-20 12:06:08,839 - httpx - INFO - HTTP Request: POST http://localhost:5002/synthesize "HTTP/1.1 500 Internal Server Error"
+2026-04-20 12:06:08,840 - server.tts.cosyvoice_tts - ERROR - CosyVoice synthesis HTTP error: 500 - {"detail":"Synthesis failed: Failed to create AudioDecoder for [0. 0. 0. ... 0. 0. 0.]: Unknown source type: <class 'numpy.ndarray'>. Supported types are str, Path, bytes, Tensor and file-like objects with read(self, size: int) -> bytes and seek(self, offset: int, whence: int) -> int methods."}
+2026-04-20 12:06:08,840 - server.pipeline - INFO - TTS synthesis complete for sentence
+2026-04-20 12:06:52,828 - server.pipeline - INFO - Text input received: is there a cafeteria available?... (lang=en)
+2026-04-20 12:06:52,828 - server.pipeline - INFO - Intent: building (conf=0.80, method=keyword)
+Batches: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00, 12.28it/s]
+2026-04-20 12:06:52,916 - server.pipeline - INFO - RAG context: 1196 chars
+2026-04-20 12:06:52,916 - server.pipeline - INFO - Prompt built: intent=building, messages=5
+2026-04-20 12:06:52,919 - httpx - INFO - HTTP Request: GET http://localhost:11434/v1/models "HTTP/1.1 200 OK"
+2026-04-20 12:06:52,919 - server.llm.fallback_chain - INFO - Attempting LLM inference with OllamaBackend
+2026-04-20 12:06:53,945 - httpx - INFO - HTTP Request: POST http://localhost:11434/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-20 12:06:54,337 - server.pipeline - INFO - TTS synthesis for language: en
+2026-04-20 12:06:54,337 - server.tts.tts_router - INFO - Routing TTS request for language: en
+2026-04-20 12:06:54,337 - server.tts.tts_router - INFO - Routing to CosyVoice2 for English
+2026-04-20 12:06:54,360 - httpx - INFO - HTTP Request: POST http://localhost:5002/synthesize "HTTP/1.1 500 Internal Server Error"
+2026-04-20 12:06:54,361 - server.tts.cosyvoice_tts - ERROR - CosyVoice synthesis HTTP error: 500 - {"detail":"Synthesis failed: Failed to create AudioDecoder for [0. 0. 0. ... 0. 0. 0.]: Unknown source type: <class 'numpy.ndarray'>. Supported types are str, Path, bytes, Tensor and file-like objects with read(self, size: int) -> bytes and seek(self, offset: int, whence: int) -> int methods."}
+2026-04-20 12:06:54,361 - server.pipeline - INFO - TTS synthesis complete for sentence
+2026-04-20 12:06:55,948 - server.pipeline - INFO - TTS synthesis for language: en
+2026-04-20 12:06:55,948 - server.tts.tts_router - INFO - Routing TTS request for language: en
+2026-04-20 12:06:55,948 - server.tts.tts_router - INFO - Routing to CosyVoice2 for English
+2026-04-20 12:06:56,049 - httpx - INFO - HTTP Request: POST http://localhost:5002/synthesize "HTTP/1.1 500 Internal Server Error"
+2026-04-20 12:06:56,050 - server.tts.cosyvoice_tts - ERROR - CosyVoice synthesis HTTP error: 500 - {"detail":"Synthesis failed: Failed to create AudioDecoder for [0. 0. 0. ... 0. 0. 0.]: Unknown source type: <class 'numpy.ndarray'>. Supported types are str, Path, bytes, Tensor and file-like objects with read(self, size: int) -> bytes and seek(self, offset: int, whence: int) -> int methods."}
+2026-04-20 12:06:56,050 - server.pipeline - INFO - TTS synthesis complete for sentence
+2026-04-20 12:06:56,513 - server.pipeline - INFO - TTS synthesis for language: en
+2026-04-20 12:06:56,513 - server.tts.tts_router - INFO - Routing TTS request for language: en
+2026-04-20 12:06:56,513 - server.tts.tts_router - INFO - Routing to CosyVoice2 for English
+2026-04-20 12:06:56,544 - httpx - INFO - HTTP Request: POST http://localhost:5002/synthesize "HTTP/1.1 500 Internal Server Error"
+2026-04-20 12:06:56,545 - server.tts.cosyvoice_tts - ERROR - CosyVoice synthesis HTTP error: 500 - {"detail":"Synthesis failed: Failed to create AudioDecoder for [0. 0. 0. ... 0. 0. 0.]: Unknown source type: <class 'numpy.ndarray'>. Supported types are str, Path, bytes, Tensor and file-like objects with read(self, size: int) -> bytes and seek(self, offset: int, whence: int) -> int methods."}
+2026-04-20 12:06:56,545 - server.pipeline - INFO - TTS synthesis complete for sentence
+2026-04-20 12:06:56,573 - server.llm.fallback_chain - INFO - Successfully used OllamaBackend (47 tokens)
+2026-04-20 12:06:56,574 - server.pipeline - INFO - LLM streaming complete
+2026-04-20 12:06:56,574 - server.pipeline - INFO - History updated: 4 messages

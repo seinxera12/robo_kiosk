@@ -11,6 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional, Any
 import torch
+from starlette.websockets import WebSocketDisconnect
 
 import logging
 
@@ -93,42 +94,59 @@ class VoicePipeline:
         - 3.5: Receives JSON event messages downstream
     """
     
-    def __init__(self, websocket: Any, config: Any):
+    def __init__(self, websocket: Any, config: Any, stt=None, llm_chain=None, rag=None, tts_router=None):
         """
         Initialize the voice pipeline.
-        
+
         Args:
-            websocket: WebSocket connection object
-            config: Configuration object with all settings
+            websocket:  Active WebSocket connection
+            config:     Config object
+            stt:        Pre-loaded WhisperSTT instance
+            llm_chain:  Pre-loaded LLMFallbackChain instance
+            rag:        Pre-loaded BuildingKB instance
+            tts_router: Pre-loaded TTSRouter instance
         """
         self.ws = websocket
         self.config = config
-        stt_device = config.stt_device
-        
-        
-        # Initialize STT component
-        from server.stt.whisper_stt import WhisperSTT
-        self.stt = WhisperSTT(
-            model_size=config.stt_model,
-            device=stt_device,       # from env
-            compute_type=config.stt_compute_type
-        )
-        
-        # Initialize LLM fallback chain
-        from server.llm.fallback_chain import LLMFallbackChain
-        self.llm_chain = LLMFallbackChain(config)
-        
-        # Initialize RAG knowledge base
-        from server.rag.chroma_store import BuildingKB
-        self.rag = BuildingKB(config.chromadb_path)
-        
-        # Initialize TTS router
-        from server.tts.tts_router import TTSRouter
-        self.tts_router = TTSRouter(config)
-        
-        # Pipeline state
+
+        # Use pre-loaded components (fast path) or construct them (slow path)
+        if stt is not None:
+            self.stt = stt
+        else:
+            from server.stt.whisper_stt import WhisperSTT
+            self.stt = WhisperSTT(
+                model_size=config.stt_model,
+                device=config.stt_device,
+                compute_type=config.stt_compute_type
+            )
+
+        if llm_chain is not None:
+            self.llm_chain = llm_chain
+        else:
+            from server.llm.fallback_chain import LLMFallbackChain
+            self.llm_chain = LLMFallbackChain(config)
+
+        if rag is not None:
+            self.rag = rag
+        else:
+            from server.rag.chroma_store import BuildingKB
+            self.rag = BuildingKB(config.chromadb_path)
+
+        if tts_router is not None:
+            self.tts_router = tts_router
+        else:
+            from server.tts.tts_router import TTSRouter
+            self.tts_router = TTSRouter(config)
+
         self.state = PipelineState()
-        
+        self._synthesis_tasks: set = set()  # tracks in-flight _synthesize_and_queue tasks
+
+        # Intent classifier — reuses the RAG embedder (no extra model load)
+        from server.llm.intent_classifier import IntentClassifier
+        self.intent_classifier = IntentClassifier(
+            embedder=self.rag.embedder if self.rag is not None else None
+        )
+
         logger.info("VoicePipeline initialized")
     
     async def run(self) -> None:
@@ -164,6 +182,7 @@ class VoicePipeline:
                 self.audio_input_worker(),
                 self.llm_worker(),
                 self.tts_worker(),
+                self.audio_output_worker(),  # NEW: Send TTS audio to client
                 self.websocket_receiver(),
                 return_exceptions=True
             )
@@ -216,10 +235,42 @@ class VoicePipeline:
                 # Get audio bytes from queue
                 audio_bytes = await self.state.audio_input.get()
                 logger.debug(f"Received audio bytes: {len(audio_bytes)} bytes")
-                
+
+                # STT-BUG-004: guard against very short audio that causes Whisper
+                # to return empty or hallucinated text, wasting an LLM call.
+                # 16000 bytes = 8000 samples = 0.5s at 16kHz PCM16.
+                MIN_AUDIO_BYTES = 16000
+                if len(audio_bytes) < MIN_AUDIO_BYTES:
+                    logger.warning(
+                        f"Audio too short ({len(audio_bytes)} bytes), skipping STT"
+                    )
+                    self.state.audio_input.task_done()
+                    continue
+
                 # Transcribe audio using STT
                 result = await self.stt.transcribe(audio_bytes)
+
+                # Drop empty transcripts — Whisper returns "" for silence/noise.
+                # Sending an empty string to the LLM wastes a full round-trip and
+                # can produce hallucinated responses.
+                if not result.text.strip():
+                    logger.info("STT returned empty transcript, skipping LLM")
+                    self.state.audio_input.task_done()
+                    continue
+
+                # Update current turn language so tts_worker routes correctly
+                self.state.current_turn = {"lang": result.language}
+                self.state.status = "thinking"
+
                 await self.state.transcript.put(result)
+
+                # Send transcript back to client so UI can show what was heard
+                await self.ws.send_json({
+                    "type": "transcript",
+                    "text": result.text,
+                    "lang": result.language,
+                    "final": True
+                })
                 
                 logger.info(f"Transcribed: {result.text[:50]}... (lang={result.language})")
                 
@@ -274,47 +325,256 @@ class VoicePipeline:
                 # Get transcript from queue
                 transcript = await self.state.transcript.get()
                 logger.debug(f"Received transcript: {transcript}")
+
+                # Guard: skip empty transcripts that slipped through
+                if not transcript.text.strip():
+                    logger.warning("llm_worker received empty transcript, skipping")
+                    self.state.transcript.task_done()
+                    continue
                 
-                # RAG retrieval (skipped when config.use_rag is False)
-                if self.config.use_rag:
-                    rag_context = await self.rag.retrieve(
+                # Classify intent to decide context source and system prompt
+                from server.llm.intent_classifier import Intent
+                
+                logger.info("=" * 80)
+                logger.info("🎯 INTENT CLASSIFICATION")
+                logger.info("=" * 80)
+                logger.info(f"📝 User input: '{transcript.text}'")
+                logger.info(f"🌐 Language: {transcript.language}")
+                
+                intent_result = self.intent_classifier.classify(
+                    transcript.text,
+                    history=self.state.conversation_history,
+                )
+                intent = intent_result.intent
+                
+                # Enhanced intent logging with routing telemetry
+                intent_icon = {
+                    Intent.BUILDING: "🏢",
+                    Intent.SEARCH: "🔍",
+                    Intent.GENERAL: "💬"
+                }.get(intent, "❓")
+                
+                logger.info(f"{intent_icon} Intent: {intent.value.upper()}")
+                logger.info(f"📊 Confidence: {intent_result.confidence:.2%}")
+                logger.info(f"🔧 Method: {intent_result.method}")
+                
+                # Show routing decision
+                if intent == Intent.BUILDING:
+                    logger.info("🎯 Routing: RAG retrieval from building knowledge base")
+                elif intent == Intent.SEARCH:
+                    logger.info("🎯 Routing: Web search via SearXNG + query reformulation")
+                else:
+                    logger.info("🎯 Routing: General conversation (no external context)")
+                
+                logger.info("=" * 80)
+                logger.info(
+                    f"Intent: {intent.value} "
+                    f"(conf={intent_result.confidence:.2f}, method={intent_result.method})"
+                )
+
+                # Fetch context based on intent
+                logger.info("─" * 80)
+                logger.info("📚 CONTEXT RETRIEVAL")
+                logger.info("─" * 80)
+                
+                context = ""
+                if intent == Intent.BUILDING and self.config.use_rag:
+                    logger.info("🏢 Retrieving from building knowledge base (RAG)...")
+                    logger.info(f"   Query: '{transcript.text}'")
+                    logger.info(f"   Language: {transcript.language}")
+                    logger.info(f"   Top-K: 3 chunks")
+                    
+                    context = await self.rag.retrieve(
                         query=transcript.text,
                         lang=transcript.language,
-                        n=3
+                        n=3,
                     )
-                    logger.info(f"Retrieved RAG context: {len(rag_context)} chunks")
+                    logger.info(f"✅ RAG retrieval complete: {len(context)} characters")
+                    if context:
+                        # Show preview of retrieved context
+                        preview = context[:200] + "..." if len(context) > 200 else context
+                        logger.info(f"   Preview: {preview}")
+
+                elif intent == Intent.SEARCH:
+                    logger.info("🔍 Initiating web search pipeline...")
+                    try:
+                        from server.search.searxng_client import searxng_search
+                        from server.search.query_reformulator import extract_search_query
+                        from server.llm.prompt_builder import format_search_context
+                        
+                        # Query reformulation happens here (with its own detailed logging)
+                        search_query = extract_search_query(
+                            transcript.text,
+                            recent_history=self.state.conversation_history,
+                        )
+                        
+                        logger.info("─" * 80)
+                        logger.info("🌐 WEB SEARCH")
+                        logger.info("─" * 80)
+                        logger.info(f"🔍 Search query: '{search_query}'")
+                        logger.info(f"🌐 Search engine: SearXNG ({self.config.searxng_url})")
+                        logger.info(f"📊 Max results: 3")
+                        logger.info(f"🌐 Language: {transcript.language}")
+                        
+                        results = await searxng_search(
+                            query=search_query,
+                            base_url=self.config.searxng_url,
+                            n_results=3,
+                            lang=transcript.language,
+                        )
+                        
+                        logger.info(f"✅ Search complete: {len(results)} results returned")
+                        
+                        # Log detailed search results
+                        if results:
+                            logger.info("─" * 80)
+                            logger.info("📄 SEARCH RESULTS")
+                            logger.info("─" * 80)
+                            for i, result in enumerate(results, 1):
+                                title = result.get('title', 'No title')
+                                content = result.get('content', 'No content')
+                                url = result.get('url', 'No URL')
+                                logger.info(f"Result #{i}:")
+                                logger.info(f"  📌 Title: {title}")
+                                logger.info(f"  📝 Content: {content[:150]}{'...' if len(content) > 150 else ''}")
+                                logger.info(f"  🔗 URL: {url}")
+                                if i < len(results):
+                                    logger.info("  " + "─" * 76)
+                        
+                        context = format_search_context(results)
+                        if context:
+                            logger.info("─" * 80)
+                            logger.info(f"✅ Search context formatted: {len(context)} characters")
+                        else:
+                            logger.warning("⚠️  Search returned no usable results — falling back to GENERAL")
+                            intent = Intent.GENERAL
+                    except Exception as e:
+                        logger.warning(f"❌ Search failed ({type(e).__name__}: {e}) — falling back to GENERAL")
+                        intent = Intent.GENERAL
                 else:
-                    rag_context = ""
-                    logger.info("RAG disabled — skipping retrieval")
+                    logger.info("💬 No external context (general conversation mode)")
                 
-                # Build prompt with RAG context
+                logger.info("=" * 80)
+
+                # Build prompt with intent-specific system prompt + context
+                logger.info("─" * 80)
+                logger.info("🔨 PROMPT CONSTRUCTION")
+                logger.info("─" * 80)
+                
                 from server.llm.prompt_builder import build_messages
                 messages = build_messages(
                     user_text=transcript.text,
                     lang=transcript.language,
-                    context=rag_context,
+                    context=context,
                     history=self.state.conversation_history,
                     kiosk_meta={
                         "building_name": self.config.building_name,
-                        "location": "kiosk"
-                    }
+                        "location": "kiosk",
+                    },
+                    building_name=self.config.building_name,
+                    intent=intent,
                 )
+
+                logger.info(f"✅ Prompt built successfully")
+                logger.info(f"   Intent: {intent.value}")
+                logger.info(f"   Total messages: {len(messages)}")
+                logger.info(f"   Context length: {len(context)} characters")
+                logger.info(f"   History turns: {len(self.state.conversation_history) // 2}")
                 
-                logger.info("Built LLM prompt with RAG context")
+                # Calculate total prompt size
+                total_chars = sum(len(msg.get('content', '')) for msg in messages)
+                logger.info(f"   Total prompt size: {total_chars} characters (~{total_chars // 4} tokens)")
                 
-                # Stream LLM response with fallback
+                # Log the final prompt for debugging (condensed)
+                logger.info("─" * 80)
+                logger.info("📋 PROMPT PREVIEW")
+                logger.info("─" * 80)
+                for i, msg in enumerate(messages, 1):
+                    role = msg.get('role', 'unknown')
+                    content = msg.get('content', '')
+                    role_icon = "🤖" if role == "system" else "👤" if role == "user" else "💬"
+                    
+                    # Show first 150 chars of each message
+                    preview = content[:150] + "..." if len(content) > 150 else content
+                    logger.info(f"{role_icon} Message {i} ({role}, {len(content)} chars):")
+                    logger.info(f"   {preview}")
+                
+                logger.info("=" * 80)
+                
+                # Stream LLM response with fallback — collect full response for history
+                logger.info("🤖 LLM GENERATION START")
+                logger.info("─" * 80)
+                
+                import time
+                generation_start = time.time()
+                token_count = 0
+                
+                full_response = ""
+                self.state.status = "speaking"
+                client_disconnected = False
                 async for token in self.llm_chain.stream_with_fallback(messages):
+                    full_response += token
+                    token_count += 1
                     await self.state.token.put(token)
-                    # Also stream text chunks back to the WebSocket client
-                    await self.ws.send_json({
-                        "type": "llm_text_chunk",
-                        "text": token,
-                        "final": False
-                    })
+                    try:
+                        await self.ws.send_json({
+                            "type": "llm_text_chunk",
+                            "text": token,
+                            "final": False
+                        })
+                    except (WebSocketDisconnect, RuntimeError):
+                        # Client disconnected mid-stream — stop sending but let
+                        # TTS finish draining so queues are left in a clean state.
+                        logger.info("llm_worker: client disconnected during token stream")
+                        client_disconnected = True
+                        break
+
+                generation_duration = time.time() - generation_start
+                tokens_per_second = token_count / generation_duration if generation_duration > 0 else 0
+
+                # Signal end of response (skip if client already gone)
+                if not client_disconnected:
+                    try:
+                        await self.ws.send_json({"type": "llm_text_chunk", "text": "", "final": True})
+                    except (WebSocketDisconnect, RuntimeError):
+                        logger.info("llm_worker: client disconnected before final chunk")
+                        client_disconnected = True
                 
-                # Signal end of response
-                await self.ws.send_json({"type": "llm_text_chunk", "text": "", "final": True})
-                logger.info("LLM streaming complete")
+                logger.info("─" * 80)
+                logger.info("✅ LLM GENERATION COMPLETE")
+                logger.info(f"   Response length: {len(full_response)} characters")
+                logger.info(f"   Tokens generated: {token_count}")
+                logger.info(f"   Duration: {generation_duration:.2f}s")
+                logger.info(f"   Speed: {tokens_per_second:.1f} tokens/sec")
+                logger.info(f"   Preview: {full_response[:100]}{'...' if len(full_response) > 100 else ''}")
+                logger.info("=" * 80)
+                
+                self.state.status = "listening"
+
+                # Signal tts_worker that the stream is complete so it can flush
+                # any remaining buffer without waiting for a timeout.
+                await self.state.token.put(None)
+
+                # Update conversation history with this turn.
+                # Store the detected language alongside each entry so the
+                # prompt builder can strip out any cross-language contamination.
+                # Use the actual response language (not the user's detected language)
+                # for the assistant entry — the LLM may have responded in the wrong
+                # language, and tagging it with the user's lang would let it slip
+                # through the cross-language filter on the next turn.
+                from server.lang.detector import detect_from_unicode
+                response_lang = detect_from_unicode(full_response)
+                self.state.conversation_history.append(
+                    {"role": "user", "content": transcript.text, "lang": transcript.language}
+                )
+                self.state.conversation_history.append(
+                    {"role": "assistant", "content": full_response, "lang": response_lang}
+                )
+                # Keep last 10 turns (20 messages = 10 user + 10 assistant)
+                if len(self.state.conversation_history) > 20:
+                    self.state.conversation_history = self.state.conversation_history[-20:]
+
+                logger.info(f"History updated: {len(self.state.conversation_history)} messages")
                 
                 # Mark task as done
                 self.state.transcript.task_done()
@@ -357,7 +617,6 @@ class VoicePipeline:
         logger.info("tts_worker started")
         
         SENTENCE_ENDINGS = frozenset('.?!。？！…')
-        MIN_SENTENCE_LENGTH = 8
         
         while True:
             try:
@@ -366,36 +625,186 @@ class VoicePipeline:
                     await asyncio.sleep(0.1)
                     continue
                 
-                # Collect tokens until sentence boundary
+                # Determine current language for language-aware sentence detection
+                current_lang = "en"
+                if self.state.current_turn and "lang" in self.state.current_turn:
+                    current_lang = self.state.current_turn["lang"]
+                
+                # Use shorter minimum for Japanese (2 chars) vs English (8 chars)
+                min_sentence_length = 2 if current_lang == "ja" else 8
+                
+                # Collect tokens until sentence boundary.
+                # Drain already-queued tokens first (non-blocking) to avoid
+                # accumulating a huge backlog into one chunk while TTS is busy.
                 buffer = ""
-                while True:
-                    token = await self.state.token.get()
-                    buffer += token
-                    
-                    # Check for sentence boundary
-                    if (buffer and 
-                        buffer[-1] in SENTENCE_ENDINGS and 
-                        len(buffer) >= MIN_SENTENCE_LENGTH):
+                sentence_complete = False
+                llm_done = False  # set when None sentinel received
+
+                while not sentence_complete:
+                    # Drain whatever is already queued without blocking
+                    while not self.state.token.empty():
+                        try:
+                            token = self.state.token.get_nowait()
+                            self.state.token.task_done()
+                            if token is None:
+                                # LLM stream finished — flush whatever is in buffer
+                                llm_done = True
+                                sentence_complete = True
+                                break
+                            buffer += token
+                            if (buffer and
+                                    buffer[-1] in SENTENCE_ENDINGS and
+                                    len(buffer) >= min_sentence_length):
+                                sentence_complete = True
+                                break
+                        except asyncio.QueueEmpty:
+                            break
+
+                    if sentence_complete:
                         break
+
+                    # Wait for the next token (longer timeout — only flush on sentinel)
+                    try:
+                        token = await asyncio.wait_for(
+                            self.state.token.get(),
+                            timeout=2.0
+                        )
+                        self.state.token.task_done()
+                        if token is None:
+                            # LLM stream finished — flush remaining buffer
+                            llm_done = True
+                            sentence_complete = True
+                        else:
+                            buffer += token
+                            if (buffer and
+                                    buffer[-1] in SENTENCE_ENDINGS and
+                                    len(buffer) >= min_sentence_length):
+                                sentence_complete = True
+
+                    except asyncio.TimeoutError:
+                        # No tokens for 2s — something stalled; flush if we have content
+                        if buffer.strip():
+                            logger.warning("tts_worker: token timeout, flushing buffer")
+                            sentence_complete = True
+                        # else keep waiting (LLM may just be slow to start)
+                
+                if not buffer.strip():
+                    continue
                 
                 logger.debug(f"Complete sentence detected: {buffer[:50]}...")
                 
-                # Synthesize sentence with TTS
-                tts_engine = self.tts_router.get_engine(lang=self.state.current_turn.get("lang", "en") if self.state.current_turn else "en")
-                async for audio_chunk in tts_engine.synthesize_stream(buffer):
-                    await self.state.audio_output.put(audio_chunk)
+                # Get TTS engine for current language with better detection
+                if self.state.current_turn and "lang" in self.state.current_turn:
+                    current_lang = self.state.current_turn["lang"]
+                else:
+                    # If no language is set, detect from the buffer text
+                    from server.lang.detector import detect_language
+                    current_lang = detect_language(buffer)
+                    logger.debug(f"No language set, detected from text: {current_lang}")
                 
-                logger.info("TTS synthesis complete for sentence")
+                # Ensure we only use supported languages
+                if current_lang not in ["en", "ja"]:
+                    logger.warning(f"Unsupported language '{current_lang}', defaulting to English")
+                    current_lang = "en"
                 
-                # Mark task as done
-                self.state.token.task_done()
-            
+                logger.info(f"TTS synthesis for language: {current_lang}")
+
+                # Use router-level synthesize_stream so per-request fallback
+                # works automatically: if KokoClone service is down, the router
+                # transparently retries with KokoroJP, then VOICEVOX, etc.
+                # No need to call get_engine() — the router handles selection
+                # and fallback internally.
+                async def _synthesize_and_queue(text: str, lang: str) -> None:
+                    try:
+                        async for audio_chunk in self.tts_router.synthesize_stream(text, lang):
+                            # Abort immediately if an interrupt arrived
+                            if self.state.interrupt_event.is_set():
+                                logger.info("TTS synthesis aborted by interrupt")
+                                return
+                            if audio_chunk:
+                                await self.state.audio_output.put(audio_chunk)
+                                logger.debug(f"Queued {len(audio_chunk)} bytes of audio")
+                    except asyncio.CancelledError:
+                        logger.info("TTS synthesis task cancelled")
+                    except Exception as exc:
+                        logger.error(f"TTS synthesis error: {exc}", exc_info=True)
+                    finally:
+                        self._synthesis_tasks.discard(asyncio.current_task())
+                    logger.info("TTS synthesis complete for sentence")
+
+                task = asyncio.create_task(_synthesize_and_queue(buffer, current_lang))
+                self._synthesis_tasks.add(task)
+
             except asyncio.CancelledError:
                 logger.info("tts_worker cancelled")
                 break
             
             except Exception as e:
                 logger.error(f"Error in tts_worker: {e}", exc_info=True)
+                # Continue processing despite errors
+    
+    async def audio_output_worker(self) -> None:
+        """
+        Send synthesized audio to client via WebSocket.
+        
+        This worker consumes audio chunks from the audio_output queue
+        and sends them to the client as binary WebSocket messages.
+        
+        Preconditions:
+            - audio_output queue receives WAV audio bytes from TTS
+            - WebSocket connection is active
+        
+        Postconditions:
+            - All audio chunks sent to client
+            - Client receives audio for playback
+        
+        Loop Invariants:
+            - Checks interrupt_event on each iteration
+            - Processes one audio chunk at a time
+        
+        Requirements:
+            - 3.4: Sends binary audio frames downstream
+            - 10.6: Streams audio chunks as generated
+        """
+        logger.info("audio_output_worker started")
+        
+        while True:
+            try:
+                # Check for interrupt
+                if self.state.interrupt_event.is_set():
+                    await asyncio.sleep(0.1)
+                    continue
+                
+                # Get audio chunk from queue
+                audio_chunk = await self.state.audio_output.get()
+                
+                if not audio_chunk:
+                    logger.warning("Empty audio chunk received, skipping")
+                    self.state.audio_output.task_done()
+                    continue
+                
+                logger.debug(f"Sending {len(audio_chunk)} bytes of audio to client")
+                
+                # Send audio to client as binary WebSocket message.
+                # Chunk into ≤64 KB frames to stay well under the client's
+                # WebSocket max_size limit (avoids 1009 "message too big").
+                CHUNK_SIZE = 64 * 1024  # 64 KB
+                try:
+                    for offset in range(0, len(audio_chunk), CHUNK_SIZE):
+                        await self.ws.send_bytes(audio_chunk[offset:offset + CHUNK_SIZE])
+                    logger.debug("Audio chunk sent successfully")
+                except (WebSocketDisconnect, RuntimeError) as e:
+                    logger.info(f"audio_output_worker: client disconnected ({e})")
+                
+                # Mark task as done
+                self.state.audio_output.task_done()
+            
+            except asyncio.CancelledError:
+                logger.info("audio_output_worker cancelled")
+                break
+            
+            except Exception as e:
+                logger.error(f"Error in audio_output_worker: {e}", exc_info=True)
                 # Continue processing despite errors
     
     async def websocket_receiver(self) -> None:
@@ -413,6 +822,14 @@ class VoicePipeline:
                 # Handle binary audio frames
                 if "bytes" in message:
                     audio_data = message["bytes"]
+                    # Only interrupt if the pipeline is actively speaking/processing
+                    # (i.e. there is something in-flight to cancel).  Firing an
+                    # interrupt on every audio frame was draining the queues and
+                    # clearing current_turn before the audio could be processed.
+                    if (self.state.status == "speaking" or
+                            not self.state.audio_output.empty() or
+                            not self.state.token.empty()):
+                        await self.handle_interrupt(notify_client=False)
                     await self.state.audio_input.put(audio_data)
                 
                 # Handle JSON control messages
@@ -445,15 +862,40 @@ class VoicePipeline:
         elif msg_type == "session_start":
             kiosk_id = message.get("kiosk_id", "unknown")
             kiosk_location = message.get("kiosk_location", "unknown")
-            self.state.current_turn = {"lang": "en"}
+            # Don't set a default language - let it be detected per message
+            self.state.current_turn = {}
             logger.info(f"Session started: kiosk_id={kiosk_id}, location={kiosk_location}")
             await self.ws.send_json({"type": "session_ack", "status": "ready"})
         elif msg_type == "text_input":
             text = message.get("text", "")
-            lang = message.get("lang", "en")
-            if lang == "auto":
-                lang = "en"
-            logger.info(f"Text input received: {text[:50]}...")
+            lang = message.get("lang", "auto")
+
+            # Always re-detect language server-side from the actual text content.
+            # Never trust the client's lang field — it may be stale, hardcoded,
+            # or wrong for mixed-script queries like "TYO株の最新価格はいくらですか？".
+            from server.lang.detector import detect_language
+            detected_lang = detect_language(text)
+
+            # Only use the client-supplied lang if it is an explicit, valid code
+            # AND the server detection agrees (or the text is too short to be sure).
+            if lang in ("en", "ja") and len(text) >= 4:
+                # If server detection disagrees with client, trust the server.
+                if detected_lang != lang:
+                    logger.info(
+                        f"Language override: client said '{lang}', "
+                        f"server detected '{detected_lang}' — using server detection"
+                    )
+                lang = detected_lang
+            else:
+                lang = detected_lang
+
+            logger.info(f"Text input received: {text[:50]}... (lang={lang})")
+            logger.debug(f"Full text for language detection: '{text}'")
+
+            # Interrupt any in-flight TTS synthesis tasks and drain queues
+            # so the new response starts cleanly without leftover audio.
+            await self.handle_interrupt(notify_client=False)
+
             # Set current turn language so tts_worker picks the right engine
             self.state.current_turn = {"lang": lang}
             # Build a transcript-like object and push it directly into the transcript queue
@@ -463,7 +905,7 @@ class VoicePipeline:
         else:
             logger.warning(f"Unknown control message type: {msg_type}")
     
-    async def handle_interrupt(self) -> None:
+    async def handle_interrupt(self, notify_client: bool = True) -> None:
         """
         Handle user interrupt (barge-in) during TTS playback.
         
@@ -496,6 +938,35 @@ class VoicePipeline:
         
         # Signal all workers to abort
         self.state.interrupt_event.set()
+
+        # Cancel every in-flight _synthesize_and_queue task and wait for them
+        # to finish.  Without this, a task blocked inside engine.synthesize_stream
+        # will resume after the single asyncio.sleep(0) yield, see interrupt_event
+        # is already cleared, and keep pushing audio into audio_output — causing
+        # the "voice resumed after interrupt" behaviour.
+        if self._synthesis_tasks:
+            tasks_to_cancel = set(self._synthesis_tasks)
+            for t in tasks_to_cancel:
+                t.cancel()
+            # Wait for all of them to actually finish (CancelledError propagates)
+            await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+            self._synthesis_tasks.clear()
+            logger.debug(f"Cancelled {len(tasks_to_cancel)} synthesis task(s)")
+        else:
+            # No synthesis tasks — just yield once so any other in-flight
+            # coroutines get a chance to see interrupt_event before we drain.
+            await asyncio.sleep(0)
+
+        # Tell the client the current response is finished so its
+        # _response_started flag is reset before the next transcript arrives.
+        # Only send this if the pipeline was actually generating a response —
+        # sending it when already idle causes spurious "Response complete" events
+        # on the client for every interrupt (e.g. VAD firing while listening).
+        if self.state.status in ("speaking", "thinking"):
+            try:
+                await self.ws.send_json({"type": "llm_text_chunk", "text": "", "final": True})
+            except Exception:
+                pass  # best-effort — don't let a send failure block interrupt handling
         
         # Drain all queues
         await self._drain_queue(self.state.audio_input)
@@ -508,11 +979,12 @@ class VoicePipeline:
         self.state.status = "listening"
         
         # Notify client
-        await self.ws.send_json({
-            "type": "status",
-            "state": "listening"
-        })
-        logger.info("Status update sent to client: listening")
+        if notify_client:
+            await self.ws.send_json({
+                "type": "status",
+                "state": "listening"
+            })
+            logger.info("Status update sent to client: listening")
         
         # Clear interrupt flag for next turn
         self.state.interrupt_event.clear()
@@ -549,7 +1021,6 @@ class VoicePipeline:
                 drained_count += 1
             except asyncio.QueueEmpty:
                 break
-        
         if drained_count > 0:
             logger.debug(f"Drained {drained_count} items from queue")
     

@@ -21,7 +21,14 @@ httpx==0.25.1
 numpy==1.24.3
 soundfile==0.12.1
 
+# TTS engines
+# Note: CosyVoice now runs as separate service (see COSYVOICE_SERVICE_SETUP.md)
+# Kokoro-82M: local English TTS (primary engine)
+kokoro>=0.9.4
+misaki[en]>=0.9.4   # English G2P / phonemiser required by Kokoro
+
 # Utilities
 python-dotenv==1.0.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
+hypothesis==6.112.2

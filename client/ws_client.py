@@ -42,11 +42,18 @@ class WebSocketClient:
             Exception: If connection fails
         """
         try:
-            self.websocket = await websockets.connect(self.server_url)
+            logger.info(f"Connecting to WebSocket: {self.server_url}")
+            self.websocket = await websockets.connect(
+                self.server_url,
+                timeout=10,  # 10 second timeout
+                ping_interval=20,  # Keep connection alive
+                ping_timeout=10
+            )
             self.reconnect_delay = 1.0  # Reset on successful connection
-            logger.info("WebSocket connected")
+            logger.info("WebSocket connected successfully")
         except Exception as e:
             logger.error(f"WebSocket connection failed: {e}")
+            logger.error(f"Make sure the server is running at {self.server_url}")
             raise
     
     async def reconnect(self) -> None:

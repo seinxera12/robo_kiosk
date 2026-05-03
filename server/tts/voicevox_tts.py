@@ -19,7 +19,7 @@ class VoicevoxTTS:
     Uses two-step API: audio_query → synthesis
     """
     
-    def __init__(self, config, speaker: int = 1):
+    def __init__(self, config, speaker: int = 888753760):
         """
         Initialize VOICEVOX client.
 
@@ -32,7 +32,7 @@ class VoicevoxTTS:
         else:
             self.base_url = getattr(config, "tts_jp_url", "http://localhost:50021")
         self.speaker = speaker
-        logger.info(f"Initialized VOICEVOX TTS at {self.base_url}")
+        logger.info(f"Initialized AivisSpeech TTS at {self.base_url}, speaker={self.speaker}")
     
     async def health_check(self) -> bool:
         """
@@ -43,8 +43,16 @@ class VoicevoxTTS:
         """
         try:
             async with httpx.AsyncClient() as client:
-                resp = await client.get(f"{self.base_url}/speakers", timeout=2.0)
-                return resp.status_code == 200
+                resp = await client.get(f"{self.base_url}/speakers", timeout=3.0)
+                if resp.status_code == 200:
+                    logger.debug("VOICEVOX service health check passed")
+                    return True
+                else:
+                    logger.warning(f"VOICEVOX service health check failed: HTTP {resp.status_code}")
+                    return False
+        except httpx.TimeoutException:
+            logger.warning("VOICEVOX health check timed out")
+            return False
         except Exception as e:
             logger.warning(f"VOICEVOX health check failed: {e}")
             return False
@@ -68,22 +76,22 @@ class VoicevoxTTS:
             - Audio matches input text
         """
         async with httpx.AsyncClient() as client:
-            # Step 1: Create audio query
+            # Step 1: Create audio query (increased timeout for longer sentences)
             query_resp = await client.post(
                 f"{self.base_url}/audio_query",
                 params={"text": text, "speaker": self.speaker},
-                timeout=5.0
+                timeout=10.0
             )
             query_resp.raise_for_status()
             audio_query = query_resp.json()
             
-            # Step 2: Synthesize audio
+            # Step 2: Synthesize audio (increased timeout for longer sentences)
             synthesis_resp = await client.post(
                 f"{self.base_url}/synthesis",
                 params={"speaker": self.speaker},
                 content=json.dumps(audio_query),
                 headers={"Content-Type": "application/json"},
-                timeout=10.0
+                timeout=30.0
             )
             synthesis_resp.raise_for_status()
             

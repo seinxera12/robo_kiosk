@@ -61,14 +61,31 @@ class WhisperSTT:
             f"device={device}, compute_type={compute_type}"
         )
         
-        self.model = WhisperModel(
-            model_size,
-            device=device,
-            compute_type=compute_type,
-            num_workers=1
-        )
-        
-        logger.info("WhisperSTT initialized successfully")
+        try:
+            self.model = WhisperModel(
+                model_size,
+                device=device,
+                compute_type=compute_type,
+                num_workers=1
+            )
+            logger.info("WhisperSTT initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize Whisper model: {e}")
+            if device == "cuda":
+                logger.info("Falling back to CPU...")
+                try:
+                    self.model = WhisperModel(
+                        model_size,
+                        device="cpu",
+                        compute_type="int8",
+                        num_workers=1
+                    )
+                    logger.info("WhisperSTT initialized on CPU")
+                except Exception as e2:
+                    logger.error(f"CPU fallback failed: {e2}")
+                    raise RuntimeError(f"Cannot initialize Whisper: {e2}")
+            else:
+                raise RuntimeError(f"Cannot initialize Whisper: {e}")
     
     async def transcribe(self, audio_bytes: bytes) -> TranscriptionResult:
         """
@@ -100,7 +117,16 @@ class WhisperSTT:
         # Convert bytes to numpy array
         audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
         audio_float = audio_np.astype(np.float32) / 32768.0
-        
+
+        # STT-BUG-004: secondary guard — if somehow a short clip reaches here,
+        # return an empty result rather than letting Whisper hallucinate.
+        # 8000 samples = 0.5s at 16kHz.
+        if len(audio_float) < 8000:
+            logger.warning(
+                f"Audio too short for transcription: {len(audio_float)} samples"
+            )
+            return TranscriptionResult(text="", language="en", confidence=0.0, duration_ms=0)
+
         # Run transcription in thread pool to avoid blocking event loop
         loop = asyncio.get_event_loop()
         segments, info = await loop.run_in_executor(
@@ -113,13 +139,26 @@ class WhisperSTT:
         text_parts = []
         for segment in segments:
             text_parts.append(segment.text)
+            # Log no_speech_prob at INFO — values > 0.6 usually mean silence/noise
+            # and are the main cause of Whisper hallucinations.
+            if segment.no_speech_prob > 0.4:
+                logger.warning(
+                    f"[Whisper] high no_speech_prob={segment.no_speech_prob:.3f} "
+                    f"for segment: {segment.text!r}"
+                )
         
         text = " ".join(text_parts).strip()
         
         # Get language and confidence
         # Requirement 4.3: Automatically detect language (English or Japanese)
         # Requirement 4.8: Use Whisper's detected language if confidence ≥0.8
-        language = info.language if info.language in ("en", "ja") else "en"
+        # Requirement 4.9: Fall back to Unicode scan if confidence <0.8
+        from server.lang.detector import detect_language
+        language = detect_language(
+            text=text,
+            whisper_lang=info.language,
+            whisper_confidence=info.language_probability,
+        )
         confidence = info.language_probability
         
         duration_ms = int((time.time() - start_time) * 1000)
@@ -139,18 +178,42 @@ class WhisperSTT:
     
     def _transcribe_sync(self, audio_float: np.ndarray):
         """
-        Synchronous transcription method for thread pool execution.
-        
-        **Validates: Requirements 4.2, 4.3**
+        Synchronous transcription — runs in thread pool via run_in_executor.
+        The generator is fully consumed here so it doesn't escape the thread.
         """
-        # Requirement 4.2: Use greedy decoding (beam_size=1) for minimum latency
         segments, info = self.model.transcribe(
             audio_float,
-            beam_size=1,           # Greedy decoding for minimum latency
-            language=None,         # Auto-detect language
-            vad_filter=False,      # VAD done client-side
-            condition_on_previous_text=False
+            beam_size=1,
+            language=None,
+            vad_filter=False,
+            condition_on_previous_text=False,
+            without_timestamps=False,  # keep timestamps for debug logging
         )
-        
-        # Convert generator to list to pass back to async context
-        return list(segments), info
+        # Consume generator fully inside the thread
+        segments = list(segments)
+
+        # ------------------------------------------------------------------ #
+        # Debug logging — set log level to DEBUG to see full Whisper output.  #
+        # All of this is zero-cost at INFO level (logger.isEnabledFor check). #
+        # ------------------------------------------------------------------ #
+        if logger.isEnabledFor(logging.DEBUG):
+            audio_duration_s = len(audio_float) / 16000
+            logger.debug(
+                f"[Whisper] audio_duration={audio_duration_s:.2f}s  "
+                f"detected_lang={info.language}  "
+                f"lang_prob={info.language_probability:.3f}  "
+                f"all_lang_probs={dict(sorted(info.all_language_probs.items(), key=lambda x: -x[1])[:5])}  "
+                f"duration={info.duration:.2f}s  "
+                f"duration_after_vad={getattr(info, 'duration_after_vad', 'n/a')}"
+            )
+            for i, seg in enumerate(segments):
+                logger.debug(
+                    f"[Whisper] segment[{i}]  "
+                    f"[{seg.start:.2f}s → {seg.end:.2f}s]  "
+                    f"avg_logprob={seg.avg_logprob:.3f}  "
+                    f"no_speech_prob={seg.no_speech_prob:.3f}  "
+                    f"compression_ratio={seg.compression_ratio:.2f}  "
+                    f"text={seg.text!r}"
+                )
+
+        return segments, info
