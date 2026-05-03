@@ -45,3 +45,4 @@ chroma/
 # Audio Tests Files
 *.wav
 
+searxng/settings.yml.new
