@@ -46,3 +46,5 @@ chroma/
 *.wav
 
 searxng/settings.yml.new
+kokoclone/
+cosyvoice_service/cosyvoice_repo/
