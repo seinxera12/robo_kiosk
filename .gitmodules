@@ -1,0 +1,6 @@
+[submodule "kokoclone"]
+	path = kokoclone
+	url = https://github.com/seinxera12/kokoclone.git
+[submodule "cosyvoice_service/cosyvoice_repo"]
+	path = cosyvoice_service/cosyvoice_repo
+	url = https://github.com/seinxera12/CosyVoice.git
