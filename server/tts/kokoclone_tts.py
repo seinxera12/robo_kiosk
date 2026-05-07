@@ -6,7 +6,13 @@ The microservice runs in a separate Python 3.12 venv to avoid version
 conflicts with the main server (Python 3.11).
 
 Service API:
-    POST /synthesize
+    POST /synthesize_stream  (primary — low-latency chunked streaming)
+        Body: { "text": "...", "lang": "ja", "reference_audio": "/abs/path.wav" }
+        Returns: chunked binary stream of length-prefixed WAV frames.
+                 Wire format: 4-byte LE uint32 length + WAV bytes, repeated.
+                 First chunk arrives in ~0.5–1 s (one phoneme batch).
+
+    POST /synthesize  (fallback — returns complete WAV after full synthesis)
         Body: { "text": "...", "lang": "ja", "reference_audio": "/abs/path.wav" }
         Returns: audio/wav bytes
 
@@ -21,6 +27,7 @@ Configuration (via server Config object or env vars):
 
 import logging
 import os
+import struct
 import time
 from typing import AsyncIterator
 
@@ -47,17 +54,10 @@ class KokoCloneTTS:
     """
 
     def __init__(self, config):
-        """
-        Initialise the KokoClone TTS client.
-
-        Args:
-            config: Server Config dataclass (or any object with the relevant attrs).
-        """
         self._url: str = getattr(config, "kokoclone_url", "http://localhost:5003").rstrip("/")
         self._ref_audio: str = getattr(config, "kokoclone_ref_audio", "") or ""
-        self._lang: str = "ja"  # KokoClone is used exclusively for Japanese here
+        self._lang: str = "ja"
 
-        # Validate reference audio path — engine is unusable without it
         if self._ref_audio and os.path.isfile(self._ref_audio):
             self._available = True
             logger.info(
@@ -74,27 +74,14 @@ class KokoCloneTTS:
                 )
 
     # ------------------------------------------------------------------
-    # Public interface (matches the contract expected by TTSRouter)
+    # Public interface
     # ------------------------------------------------------------------
 
     async def health_check(self) -> bool:
-        """
-        Ping the KokoClone microservice.
-
-        Returns:
-            True if the service responds with status 200, False otherwise.
-        """
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.get(f"{self._url}/health", timeout=_HEALTH_TIMEOUT)
-                if resp.status_code == 200:
-                    logger.debug("[KokoCloneTTS] health check passed")
-                    return True
-                logger.warning(f"[KokoCloneTTS] health check HTTP {resp.status_code}")
-                return False
-        except httpx.TimeoutException:
-            logger.warning("[KokoCloneTTS] health check timed out")
-            return False
+                return resp.status_code == 200
         except Exception as exc:
             logger.warning(f"[KokoCloneTTS] health check failed: {exc}")
             return False
@@ -103,20 +90,16 @@ class KokoCloneTTS:
         """
         Synthesise Japanese text using zero-shot voice cloning.
 
-        Sends a POST /synthesize request to the KokoClone microservice and
-        yields the returned WAV bytes as a single chunk.  TTSRouter's fallback
-        logic treats zero chunks as a service failure and moves to the next
-        engine (KokoroJapaneseTTS).
+        Uses the /synthesize_stream endpoint so the first audio chunk arrives
+        after the first phoneme batch (~0.5–1 s) rather than waiting for the
+        full sentence to finish (~3–7 s).  Falls back to /synthesize if the
+        streaming endpoint is unavailable.
 
-        Args:
-            text: Japanese text to synthesise.
+        Wire format from /synthesize_stream:
+            Repeated: [ 4-byte LE uint32 length ][ WAV bytes of that length ]
 
         Yields:
-            WAV audio bytes (complete response, not chunked).
-
-        Raises:
-            Does NOT raise — exceptions are caught and logged so TTSRouter's
-            fallback loop can continue to the next engine.
+            WAV audio bytes for each chunk as it arrives.
         """
         if not text.strip():
             logger.warning("[KokoCloneTTS] synthesize_stream called with empty text — skipping")
@@ -133,9 +116,82 @@ class KokoCloneTTS:
         }
 
         logger.info(f"[KokoCloneTTS] synthesising [{self._lang}]: {text[:80]!r}")
+        _t_start = time.perf_counter()
+        chunks_yielded = 0
 
         try:
-            _t_start = time.perf_counter()
+            async with httpx.AsyncClient() as client:
+                async with client.stream(
+                    "POST",
+                    f"{self._url}/synthesize_stream",
+                    json=payload,
+                    timeout=httpx.Timeout(
+                        connect=_SYNTH_CONNECT_TIMEOUT,
+                        read=_SYNTH_READ_TIMEOUT,
+                        write=_SYNTH_CONNECT_TIMEOUT,
+                        pool=_SYNTH_CONNECT_TIMEOUT,
+                    ),
+                ) as resp:
+                    resp.raise_for_status()
+
+                    # Read length-prefixed WAV frames from the chunked response.
+                    # We accumulate raw bytes and parse frames as they arrive.
+                    buf = b""
+                    async for raw in resp.aiter_bytes(chunk_size=4096):
+                        buf += raw
+                        # Parse as many complete frames as are available
+                        while len(buf) >= 4:
+                            (frame_len,) = struct.unpack_from("<I", buf, 0)
+                            if len(buf) < 4 + frame_len:
+                                break  # wait for more data
+                            wav_bytes = buf[4: 4 + frame_len]
+                            buf = buf[4 + frame_len:]
+                            elapsed = (time.perf_counter() - _t_start) * 1000
+                            logger.info(
+                                f"[KokoCloneTTS] chunk_{chunks_yielded} "
+                                f"elapsed_ms={elapsed:.0f} bytes={len(wav_bytes)}"
+                            )
+                            chunks_yielded += 1
+                            yield wav_bytes
+
+            if chunks_yielded > 0:
+                total_ms = (time.perf_counter() - _t_start) * 1000
+                logger.info(
+                    f"[KokoCloneTTS] stream_complete chunks={chunks_yielded} "
+                    f"total_ms={total_ms:.0f}"
+                )
+                return
+
+        except httpx.ConnectError as exc:
+            logger.error(
+                f"[KokoCloneTTS] cannot connect to service at {self._url!r}: {exc}"
+            )
+            return
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                # Older server without /synthesize_stream — fall through to
+                # the non-streaming fallback below.
+                logger.warning(
+                    "[KokoCloneTTS] /synthesize_stream not found (404) — "
+                    "falling back to /synthesize"
+                )
+            else:
+                logger.error(
+                    f"[KokoCloneTTS] /synthesize_stream HTTP {exc.response.status_code}"
+                )
+                return
+        except httpx.TimeoutException as exc:
+            logger.error(f"[KokoCloneTTS] stream request timed out: {exc}")
+            return
+        except Exception as exc:
+            logger.error(
+                f"[KokoCloneTTS] unexpected error during stream: {exc}", exc_info=True
+            )
+            return
+
+        # ── Fallback: non-streaming /synthesize ─────────────────────────────
+        logger.info("[KokoCloneTTS] using non-streaming /synthesize fallback")
+        try:
             async with httpx.AsyncClient() as client:
                 resp = await client.post(
                     f"{self._url}/synthesize",
@@ -148,28 +204,13 @@ class KokoCloneTTS:
                     ),
                 )
                 resp.raise_for_status()
-
                 wav_bytes = resp.content
-                if not wav_bytes:
-                    logger.warning("[KokoCloneTTS] service returned empty response body")
-                    return
-
-                _round_trip_ms = (time.perf_counter() - _t_start) * 1000
-                logger.info(f"[KokoCloneTTS] synthesis_complete round_trip_ms={_round_trip_ms:.1f} response_bytes={len(wav_bytes)}")
-                yield wav_bytes
-
-        except httpx.ConnectError as exc:
-            logger.error(
-                f"[KokoCloneTTS] cannot connect to service at {self._url!r}: {exc} — "
-                "is the kokoclone microservice running? "
-                "(cd kokoclone && uv run python server.py)"
-            )
-        except httpx.TimeoutException as exc:
-            logger.error(f"[KokoCloneTTS] request timed out: {exc}")
-        except httpx.HTTPStatusError as exc:
-            logger.error(
-                f"[KokoCloneTTS] service returned HTTP {exc.response.status_code}: "
-                f"{exc.response.text[:200]}"
-            )
+                if wav_bytes:
+                    _round_trip_ms = (time.perf_counter() - _t_start) * 1000
+                    logger.info(
+                        f"[KokoCloneTTS] synthesis_complete round_trip_ms={_round_trip_ms:.1f} "
+                        f"response_bytes={len(wav_bytes)}"
+                    )
+                    yield wav_bytes
         except Exception as exc:
-            logger.error(f"[KokoCloneTTS] unexpected error during synthesis: {exc}", exc_info=True)
+            logger.error(f"[KokoCloneTTS] fallback /synthesize failed: {exc}", exc_info=True)
