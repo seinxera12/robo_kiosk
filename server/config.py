@@ -64,6 +64,12 @@ class Config:
     kokoclone_enabled: bool = True               # Set False to skip KokoClone and use KokoroJP instead
     kokoclone_url: str = "http://localhost:5003"  # KokoClone microservice URL
 
+    # Qwen3 TTS fallback engine
+    qwen3_tts_enabled: bool = False
+    qwen3_tts_ws_url: str = "ws://localhost:8001/v1/audio/speech/stream"
+    qwen3_tts_voice: str = "Ono_Anna"
+    qwen3_tts_language: str = "ja"
+
     def __post_init__(self):
         """Initialize mutable defaults."""
         if self.kiosk_metadata is None:
@@ -136,4 +142,10 @@ class Config:
             kokoclone_ref_audio=os.getenv("KOKOCLONE_REF_AUDIO"),
             kokoclone_enabled=os.getenv("KOKOCLONE_ENABLED", "true").lower() not in ("false", "0", "no"),
             kokoclone_url=os.getenv("KOKOCLONE_URL", "http://localhost:5003"),
+
+            # Qwen3 TTS fallback engine
+            qwen3_tts_enabled=os.getenv("QWEN3_TTS_ENABLED", "false").lower() in ("true", "1", "yes"),
+            qwen3_tts_ws_url=os.getenv("QWEN3_TTS_WS_URL", "ws://localhost:8001/v1/audio/speech/stream"),
+            qwen3_tts_voice=os.getenv("QWEN3_TTS_VOICE", "Ono_Anna"),
+            qwen3_tts_language=os.getenv("QWEN3_TTS_LANGUAGE", "ja"),
         )

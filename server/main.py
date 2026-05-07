@@ -156,6 +156,16 @@ async def health_check():
         else:
             tts_status["kokoro_ja"] = "not_initialized"
 
+        # Qwen3 TTS (final fallback)
+        if config and not config.qwen3_tts_enabled:
+            tts_status["qwen3_tts"] = "disabled"
+        elif tts_router and tts_router.qwen3_tts:
+            try:
+                is_ready = await tts_router.qwen3_tts.health_check()
+                tts_status["qwen3_tts"] = "ready" if is_ready else "unavailable"
+            except Exception as e:
+                tts_status["qwen3_tts"] = f"error: {str(e)}"
+
         health_status["tts"] = tts_status
 
     logger.debug("Health check requested")

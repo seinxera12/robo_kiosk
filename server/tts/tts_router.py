@@ -96,6 +96,23 @@ class TTSRouter:
             logger.info("KokoroJapaneseTTS disabled via config (kokoro_jp_enabled=False)")
             self.kokoro_jp = None
 
+        # Qwen3 TTS (final fallback for both English and Japanese)
+        qwen3_tts_enabled = getattr(config, "qwen3_tts_enabled", False)
+        if qwen3_tts_enabled:
+            try:
+                from server.tts.qwen3_tts import Qwen3TTSEngine
+                self.qwen3_tts = Qwen3TTSEngine(config)
+                logger.info(
+                    f"Qwen3TTSEngine initialised (final fallback) -- "
+                    f"url={config.qwen3_tts_ws_url!r}"
+                )
+            except Exception as exc:
+                logger.warning(f"Failed to initialise Qwen3TTSEngine: {exc}")
+                self.qwen3_tts = None
+        else:
+            logger.info("Qwen3TTSEngine disabled via config (qwen3_tts_enabled=False)")
+            self.qwen3_tts = None
+
         logger.info("TTSRouter ready")
 
     # ------------------------------------------------------------------
@@ -153,8 +170,17 @@ class TTSRouter:
             if engine is None:
                 logger.error("TTSRouter.synthesize_stream: no English engine available")
                 return
+            chunks_yielded = 0
             async for chunk in engine.synthesize_stream(text):
+                chunks_yielded += 1
                 yield chunk
+            if chunks_yielded == 0 and self.qwen3_tts is not None:
+                logger.warning(
+                    "TTSRouter: KokoroTTS produced no audio -- "
+                    "falling back to Qwen3TTSEngine (English)"
+                )
+                async for chunk in self.qwen3_tts.synthesize_stream(text):
+                    yield chunk
             return
 
         # Japanese -- try each engine in order, fall back if none yielded
@@ -163,6 +189,8 @@ class TTSRouter:
             ja_engines.append(("KokoCloneTTS", self.kokoclone))
         if self.kokoro_jp is not None:
             ja_engines.append(("KokoroJapaneseTTS", self.kokoro_jp))
+        if self.qwen3_tts is not None:
+            ja_engines.append(("Qwen3TTSEngine", self.qwen3_tts))
 
         if not ja_engines:
             logger.error("TTSRouter.synthesize_stream: no Japanese engine available")
@@ -216,6 +244,8 @@ class TTSRouter:
             results["kokoclone"] = await self.kokoclone.health_check()
         if self.kokoro_jp is not None:
             results["kokoro_jp"] = await self.kokoro_jp.health_check()
+        if self.qwen3_tts is not None:
+            results["qwen3_tts"] = await self.qwen3_tts.health_check()
 
         logger.info(f"TTS health: {results}")
         return results
