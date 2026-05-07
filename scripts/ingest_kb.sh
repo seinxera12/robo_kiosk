@@ -5,7 +5,7 @@
 set -e
 
 KB_PATH="${KB_PATH:-./building_kb}"
-CHROMA_PATH="${CHROMA_PATH:-./chroma_db}"
+CHROMA_PATH="${CHROMA_PATH:-./chroma_data}"
 
 echo "=== Knowledge Base Ingestion Script ==="
 echo "KB Path: $KB_PATH"
