@@ -556,19 +556,36 @@ class VoicePipeline:
                 await self.state.token.put(None)
 
                 # Update conversation history with this turn.
+                # Strip any language-enforcement boilerplate the model may have
+                # echoed back before saving — these patterns come from the system
+                # prompt and must never appear in history as fake assistant content.
+                import re as _re
+                _BOILERPLATE_PATTERNS = [
+                    # Bracket-notation instructions the model sometimes echoes
+                    r'\[RESPOND IN (?:JAPANESE|ENGLISH) ONLY\]',
+                    r'\[日本語で回答してください\]',
+                    r'\[Reply in English\]',
+                    # Japanese language-rule blocks
+                    r'【絶対ルール】.*?(?=\n\n|\Z)',
+                    r'【言語確認】.*?(?=\n\n|\Z)',
+                    # English language-rule blocks
+                    r'ABSOLUTE RULE:.*?(?=\n\n|\Z)',
+                    r'LANGUAGE CHECK:.*?(?=\n\n|\Z)',
+                    r'Important: Write your entire response.*?(?=\n\n|\Z)',
+                ]
+                cleaned_response = full_response
+                for pattern in _BOILERPLATE_PATTERNS:
+                    cleaned_response = _re.sub(pattern, '', cleaned_response, flags=_re.DOTALL).strip()
+
                 # Store the detected language alongside each entry so the
                 # prompt builder can strip out any cross-language contamination.
-                # Use the actual response language (not the user's detected language)
-                # for the assistant entry — the LLM may have responded in the wrong
-                # language, and tagging it with the user's lang would let it slip
-                # through the cross-language filter on the next turn.
                 from server.lang.detector import detect_from_unicode
-                response_lang = detect_from_unicode(full_response)
+                response_lang = detect_from_unicode(cleaned_response)
                 self.state.conversation_history.append(
                     {"role": "user", "content": transcript.text, "lang": transcript.language}
                 )
                 self.state.conversation_history.append(
-                    {"role": "assistant", "content": full_response, "lang": response_lang}
+                    {"role": "assistant", "content": cleaned_response, "lang": response_lang}
                 )
                 # Keep last 10 turns (20 messages = 10 user + 10 assistant)
                 if len(self.state.conversation_history) > 20:
@@ -690,8 +707,28 @@ class VoicePipeline:
                 
                 if not buffer.strip():
                     continue
-                
-                logger.debug(f"Complete sentence detected: {buffer[:50]}...")
+
+                # Strip any language-enforcement boilerplate the model echoed
+                # back before sending to TTS — these should never be spoken aloud.
+                import re as _re
+                _TTS_STRIP_PATTERNS = [
+                    r'\[RESPOND IN (?:JAPANESE|ENGLISH) ONLY\]\s*',
+                    r'\[日本語で回答してください\]\s*',
+                    r'\[Reply in English\]\s*',
+                    r'【絶対ルール】[^\n]*\n?',
+                    r'【言語確認】[^\n]*\n?',
+                    r'ABSOLUTE RULE:[^\n]*\n?',
+                    r'LANGUAGE CHECK:[^\n]*\n?',
+                    r'Important: Write your entire response[^\n]*\n?',
+                ]
+                tts_buffer = buffer
+                for pat in _TTS_STRIP_PATTERNS:
+                    tts_buffer = _re.sub(pat, '', tts_buffer, flags=_re.IGNORECASE).strip()
+
+                if not tts_buffer.strip():
+                    continue
+
+                logger.debug(f"Complete sentence detected: {tts_buffer[:50]}...")
                 
                 # Get TTS engine for current language with better detection
                 if self.state.current_turn and "lang" in self.state.current_turn:
@@ -732,7 +769,7 @@ class VoicePipeline:
                         self._synthesis_tasks.discard(asyncio.current_task())
                     logger.info("TTS synthesis complete for sentence")
 
-                task = asyncio.create_task(_synthesize_and_queue(buffer, current_lang))
+                task = asyncio.create_task(_synthesize_and_queue(tts_buffer, current_lang))
                 self._synthesis_tasks.add(task)
 
             except asyncio.CancelledError:
