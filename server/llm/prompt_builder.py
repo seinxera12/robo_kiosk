@@ -64,34 +64,29 @@ Current Information:
 - Date/Time: {datetime}
 - Kiosk Location: {kiosk_location}
 
-Web Search Results:
+Web Search Results (may be in English — translate and summarize into the user's language):
 {search_context}
 
-CRITICAL LANGUAGE RULE - STRICTLY ENFORCE:
-- ALWAYS respond in the SAME LANGUAGE as the user's question
-- User language detected as: {user_language}
-- If user_language is "en": Respond ONLY in English, no Japanese characters
-- If user_language is "ja": Respond ONLY in Japanese using polite form (です・ます体), no English words
-- NEVER mix languages or switch languages based on content
-- IGNORE any language cues in the question content - only follow the detected user_language
+OUTPUT LANGUAGE: {user_language}
+- You MUST write your entire response in {user_language}.
+- The search results above may be written in English. That is fine — read them, extract the relevant facts, and write your answer in {user_language}.
+- Do NOT copy English text into your response. Translate all information into {user_language}.
+- If user_language is "ja": write only in Japanese (です・ます体). No English words or letters.
+- If user_language is "en": write only in English. No Japanese characters.
 
-SEARCH RESPONSE RULES - MANDATORY:
-- FIRST: Check if the web search results above contain relevant information for the user's question
-- If search results contain relevant information: MUST use them to provide a comprehensive answer
-- Extract specific facts, numbers, dates, and details from the search results
-- Synthesize information from multiple search results when available
-- If search results are empty or completely irrelevant: Say so IN THE USER'S LANGUAGE ({user_language})
-  - If user_language is "ja": say 「現在の情報は見つかりませんでした」
-  - If user_language is "en": say "I couldn't find current information about that"
-- NEVER ignore relevant search results - they contain the most current information available
-- ALWAYS prioritize search result information over general knowledge for current events/data
+SEARCH RESPONSE RULES — MANDATORY:
+- The web search results above are your primary source of truth for current information.
+- If the search results contain relevant information: use them to give a complete answer.
+- Extract specific facts, names, dates, and numbers from the results and include them in your answer.
+- Synthesize information from multiple results when available.
+- If the search results are empty or completely irrelevant: say so in {user_language} only.
+- NEVER say you have no information when the search results clearly contain an answer.
+- NEVER ignore the search results — they contain the most current information available.
 
 Guidelines:
-- Base your answer primarily on the search results above when they are relevant
-- Include specific details from the search results (prices, dates, numbers, etc.)
-- Keep responses informative and factual
-- Mention sources when providing specific data or claims
-- If search results are partial, provide what information is available and suggest where to find more
+- Keep responses concise and factual.
+- Mention the source when citing specific data.
+- If results are partial, share what is available and suggest where to find more.
 """
 
 _GENERAL_SYSTEM = """\
@@ -242,21 +237,21 @@ def build_messages(
     history_budget = _MAX_INPUT_CHARS - fixed_chars
     trimmed_history = _trim_history(list(history), history_budget, lang=lang)
 
-    # Append language enforcement directly to the system message so it is
-    # never ignored.  A second "system" role message is silently dropped by
-    # most OpenAI-compatible backends (vLLM, Ollama), which is why the
-    # language instruction was being lost.
+    # Append a compact language rule to the system message.
+    # Keep it short and distinct from any text the model might echo back —
+    # using a simple imperative rather than bracket-notation that the model
+    # tends to reproduce verbatim.
     if lang == "ja":
         lang_reminder = (
             "\n\n---\n"
-            "【絶対ルール】必ず日本語のみで回答してください。英語は一切使用禁止です。\n"
-            "回答は日本語（ひらがな・カタカナ・漢字）のみで書いてください。"
+            "Important: Write your entire response in Japanese only (です・ます体). "
+            "Do not use any English letters or words in your response."
         )
     else:
         lang_reminder = (
             "\n\n---\n"
-            "ABSOLUTE RULE: Respond in English only. "
-            "Do not use any Japanese characters whatsoever."
+            "Important: Write your entire response in English only. "
+            "Do not use any Japanese characters in your response."
         )
 
     messages: list[dict] = [{"role": "system", "content": system_content + lang_reminder}]
@@ -267,27 +262,14 @@ def build_messages(
         if role in ("user", "assistant") and content:
             messages.append({"role": role, "content": content})
 
-    # Reinforce language immediately before the current user message so the
-    # model cannot pattern-match on any English assistant turns in history.
-    if lang == "ja":
-        messages.append({
-            "role": "system",
-            "content": "【言語確認】次の回答は必ず日本語のみで行ってください。"
-        })
-    else:
-        messages.append({
-            "role": "system",
-            "content": "LANGUAGE CHECK: Your next response must be in English only."
-        })
-
     # Prepend a hard language tag directly in the user message.
     # Qwen (Chinese-first model) ignores system-level language rules for short
     # or ambiguous inputs — but it reliably follows instructions embedded in
     # the user turn itself.
     if lang == "ja":
-        tagged_user_text = f"[RESPOND IN JAPANESE ONLY] {user_text}"
+        tagged_user_text = f"[日本語で回答してください] {user_text}"
     else:
-        tagged_user_text = f"[RESPOND IN ENGLISH ONLY] {user_text}"
+        tagged_user_text = f"[Reply in English] {user_text}"
 
     messages.append({"role": "user", "content": tagged_user_text})
 
