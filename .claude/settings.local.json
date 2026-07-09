@@ -6,7 +6,18 @@
       "Bash(tail -20 \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\seinxera12\\\\robotic_robo\\\\guides\\\\UI_Audit.md\")",
       "Bash(grep -n \"\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\|\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\html\\\\\\\\|\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\python\\\\\\\\|\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\bash\\\\\\\\|\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\ini\\\\\\\\|\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\css\" \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\seinxera12\\\\robotic_robo\\\\guides\\\\UI_Audit.md\")",
       "Bash(wc -l \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\seinxera12\\\\robotic_robo\\\\guides\\\\UI_Audit.md\")",
-      "Bash(grep \"^##\" \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\seinxera12\\\\robotic_robo\\\\guides\\\\UI_Audit.md\")"
+      "Bash(grep \"^##\" \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\seinxera12\\\\robotic_robo\\\\guides\\\\UI_Audit.md\")",
+      "Bash(cd \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\seinxera12\\\\robotic_robo\")",
+      "Bash(ls -la server/)",
+      "Bash(ls -la client/)",
+      "Bash(mkdir -p .devdocs/ui-migration/docs)",
+      "Read(///wsl.localhost/Ubuntu/home/seinxera12/**)",
+      "Bash(npm --version)",
+      "Bash(ls -d */)",
+      "Bash(mkdir -p frontend/src/config frontend/src/services frontend/src/store frontend/src/audio frontend/src/components frontend/public)",
+      "Read(///wsl.localhost/Ubuntu/home/seinxera12/robotic_robo/**)",
+      "Bash(npm install *)",
+      "Bash(cd \"//wsl.localhost/Ubuntu/home/seinxera12/robotic_robo/frontend\" && echo \"=== src tree ===\" && find src -type f | sort && echo \"\" && echo \"=== local imports referenced ===\" && grep -rhoE \"from \\\\\"\\\\.[^\\\\\"]+\\\\\"\" src | sort -u)"
     ]
   }
 }
