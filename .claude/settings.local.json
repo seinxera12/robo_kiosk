@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(head -50 \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\seinxera12\\\\robotic_robo\\\\guides\\\\UI_Audit.md\")",
+      "Bash(grep -c \"^\\\\`\\\\`\\\\`\" \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\seinxera12\\\\robotic_robo\\\\guides\\\\UI_Audit.md\")",
+      "Bash(tail -20 \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\seinxera12\\\\robotic_robo\\\\guides\\\\UI_Audit.md\")",
+      "Bash(grep -n \"\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\|\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\html\\\\\\\\|\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\python\\\\\\\\|\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\bash\\\\\\\\|\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\ini\\\\\\\\|\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\css\" \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\seinxera12\\\\robotic_robo\\\\guides\\\\UI_Audit.md\")",
+      "Bash(wc -l \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\seinxera12\\\\robotic_robo\\\\guides\\\\UI_Audit.md\")",
+      "Bash(grep \"^##\" \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\seinxera12\\\\robotic_robo\\\\guides\\\\UI_Audit.md\")"
+    ]
+  }
+}
