@@ -17,8 +17,8 @@ A fully self-hosted, bilingual (English + Japanese) real-time streaming voice ch
 
 ### Server (GPU)
 - **STT**: Whisper Large V3 Turbo via faster-whisper
-- **LLM**: Qwen2.5-7B-Instruct via vLLM/Ollama, Grok-3-fast fallback
-- **TTS**: CosyVoice2 (English), VOICEVOX (Japanese)
+- **LLM**: Qwen2.5-3b-Instruct via vLLM/Ollama, Grok-3-fast fallback
+- **TTS**: Kokoro (English), KokoClone (Japanese)
 - **RAG**: ChromaDB with multilingual-e5-large embeddings
 - **Web Search**: Self-hosted SearXNG integration
 
