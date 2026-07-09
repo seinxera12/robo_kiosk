@@ -1,0 +1,196 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.3);
+}
+
+.app-header h1 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.kiosk-tag {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.app-main {
+  flex: 1;
+  padding: 1.25rem;
+}
+
+.placeholder {
+  opacity: 0.7;
+}
+
+.config-dump {
+  font-size: 0.85rem;
+  opacity: 0.6;
+}
+
+.config-dump dt {
+  font-weight: 600;
+  margin-top: 0.5rem;
+}
+
+/* Status bar */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 1.25rem;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+  font-size: 0.85rem;
+}
+.status-bar .spacer {
+  flex: 1;
+}
+.conn-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: #999;
+}
+.conn-ready {
+  background: #2ecc71;
+}
+.conn-reconnecting,
+.conn-connecting,
+.conn-connected {
+  background: #f39c12;
+}
+.conn-disconnected {
+  background: #e74c3c;
+}
+.status-label {
+  opacity: 0.7;
+}
+.status-bar button {
+  font-size: 0.8rem;
+}
+
+/* Soft error banner (FE-13) */
+.soft-error {
+  background: rgba(231, 76, 60, 0.12);
+  color: #c0392b;
+  padding: 0.5rem 1.25rem;
+  font-size: 0.85rem;
+}
+
+/* Transcript */
+.transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 48rem;
+  margin: 0 auto;
+}
+.transcript-empty {
+  opacity: 0.5;
+  text-align: center;
+}
+.bubble {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.75rem;
+  max-width: 80%;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.bubble-user {
+  align-self: flex-end;
+  background: #3498db;
+  color: #fff;
+}
+.bubble-assistant {
+  align-self: flex-start;
+  background: rgba(128, 128, 128, 0.18);
+}
+.bubble-cursor {
+  animation: blink 1s steps(2, start) infinite;
+}
+@keyframes blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+/* Footer input row */
+.app-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid rgba(128, 128, 128, 0.2);
+}
+.mic-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.ptt {
+  padding: 0.6rem 1.2rem;
+  border-radius: 0.5rem;
+}
+.ptt.recording {
+  background: #e74c3c;
+  color: #fff;
+}
+.text-input {
+  display: flex;
+  gap: 0.5rem;
+}
+.text-input input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+}
+
+/* Health panel */
+.health-panel {
+  position: fixed;
+  bottom: 0.5rem;
+  right: 0.5rem;
+  font-size: 0.75rem;
+}
+.health-toggle {
+  opacity: 0.7;
+}
+.health-detail {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  margin-top: 0.25rem;
+}
+.health-row {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+.health-detail .ok {
+  color: #2ecc71;
+}
+.health-detail .warn {
+  color: #e67e22;
+}
