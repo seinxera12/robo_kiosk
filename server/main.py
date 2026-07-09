@@ -69,7 +69,7 @@ async def lifespan(app: FastAPI):
     from server.tts.tts_router import TTSRouter
     app_state["tts_router"] = TTSRouter(config)
 
-    logger.info(f"Server ready — host={config.host}, port={config.port}")
+    logger.info(f"Server ready -- host={config.host}, port={config.port}")
 
     yield
 
@@ -100,55 +100,64 @@ app.add_middleware(
 async def health_check():
     """
     Health check endpoint (Requirements 23.1, 23.4, 23.5).
-    
+
     Returns HTTP 200 when server is operational.
     Used by Docker health checks and monitoring systems.
-    
+
     Returns:
         JSONResponse: Health status with server information
     """
     config = app_state.get("config")
     tts_router = app_state.get("tts_router")
-    
+
     health_status = {
         "status": "healthy",
         "service": "voice-kiosk-chatbot",
         "version": "1.0.0",
     }
-    
+
     if config:
         health_status["config"] = {
             "building_name": config.building_name,
             "stt_model": config.stt_model,
-            "tts_en_engine": config.tts_en_engine,
         }
-    
+
     # Check TTS engine status
     if tts_router:
         tts_status = {}
-        
-        # Check CosyVoice (English)
-        if tts_router.cosyvoice:
+
+        # Kokoro (English)
+        if tts_router.kokoro:
             try:
-                is_ready = await tts_router.cosyvoice.health_check()
-                tts_status["cosyvoice_en"] = "ready" if is_ready else "not_loaded"
+                is_ready = await tts_router.kokoro.health_check()
+                tts_status["kokoro_en"] = "ready" if is_ready else "not_loaded"
             except Exception as e:
-                tts_status["cosyvoice_en"] = f"error: {str(e)}"
+                tts_status["kokoro_en"] = f"error: {str(e)}"
         else:
-            tts_status["cosyvoice_en"] = "not_initialized"
-        
-        # Check VOICEVOX (Japanese)
-        if tts_router.voicevox:
+            tts_status["kokoro_en"] = "not_initialized"
+
+        # KokoClone (Japanese primary)
+        if tts_router.kokoclone:
             try:
-                is_ready = await tts_router.voicevox.health_check()
-                tts_status["voicevox_ja"] = "ready" if is_ready else "unavailable"
+                is_ready = await tts_router.kokoclone.health_check()
+                tts_status["kokoclone_ja"] = "ready" if is_ready else "unavailable"
             except Exception as e:
-                tts_status["voicevox_ja"] = f"error: {str(e)}"
+                tts_status["kokoclone_ja"] = f"error: {str(e)}"
         else:
-            tts_status["voicevox_ja"] = "not_initialized"
-        
+            tts_status["kokoclone_ja"] = "not_initialized"
+
+        # Kokoro JP (Japanese secondary)
+        if tts_router.kokoro_jp:
+            try:
+                is_ready = await tts_router.kokoro_jp.health_check()
+                tts_status["kokoro_ja"] = "ready" if is_ready else "not_loaded"
+            except Exception as e:
+                tts_status["kokoro_ja"] = f"error: {str(e)}"
+        else:
+            tts_status["kokoro_ja"] = "not_initialized"
+
         health_status["tts"] = tts_status
-    
+
     logger.debug("Health check requested")
     return JSONResponse(content=health_status, status_code=200)
 
@@ -190,10 +199,10 @@ async def websocket_endpoint(websocket: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     # Load configuration
     config = Config.from_env()
-    
+
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
     uvicorn.run(

@@ -134,24 +134,6 @@ services:
               count: 1
               capabilities: [gpu]
 
-  # VOICEVOX - Japanese TTS engine (REST API)
-  voicevox:
-    image: voicevox/voicevox_engine:latest
-    container_name: voicevox
-    ports:
-      - "50021:50021"
-    environment:
-      - VV_CPU_NUM_THREADS=8
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:50021/version"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    networks:
-      - voice-network
-    restart: unless-stopped
-
   # SearXNG - Self-hosted web search service
   searxng:
     image: searxng/searxng:latest
