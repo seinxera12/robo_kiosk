@@ -1,10 +1,15 @@
 use_default_settings: true
 
 server:
-  secret_key: "myvoicekiosk2026secret"
+  secret_key: "${SEARXNG_SECRET}"
   bind_address: "0.0.0.0:8080"
-  base_url: "http://localhost:8081/"
+  base_url: "http://searxng:8080/"
   limiter: false
+  forwarding_allow_ips: "*"
+  public_instance: false
+
+redis:
+  url: redis://searxng-redis:6379/0
 
 search:
   safe_search: 0
@@ -13,6 +18,67 @@ search:
   formats:
     - html
     - json
+
+outgoing:
+  request_timeout: 6.0
+  max_request_timeout: 12.0
+  pool_connections: 100
+  pool_maxsize: 20
+
+engines:
+  # --- Reliable engines: don't aggressively rate-limit/CAPTCHA datacenter IPs ---
+  - name: duckduckgo
+    disabled: false
+
+  - name: duckduckgo news
+    disabled: false
+
+  - name: bing
+    disabled: false
+
+  - name: bing news
+    disabled: false
+
+  - name: mojeek
+    disabled: false
+
+  - name: wikipedia
+    disabled: false
+    timeout: 6.0
+
+  # --- Disabled: actively blocking this server's IP (confirmed in logs) ---
+  - name: brave
+    disabled: true
+
+  - name: qwant
+    disabled: true
+
+  # --- Disabled: CAPTCHA-blocks datacenter/cloud IPs ---
+  - name: google
+    disabled: true
+
+  - name: google news
+    disabled: true
+
+  - name: google images
+    disabled: true
+
+  # --- Disabled: aggressive bot detection ---
+  - name: startpage
+    disabled: true
+
+  - name: startpage news
+    disabled: true
+
+  - name: startpage images
+    disabled: true
+
+  # --- Fails to load in this build; disable to suppress churn ---
+  - name: torch
+    disabled: true
+
+  - name: ahmia
+    disabled: true
 
 ui:
   static_use_hash: true
