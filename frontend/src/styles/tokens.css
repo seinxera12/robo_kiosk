@@ -1,0 +1,13 @@
+:root {
+  --bg-void: #05070a;
+  --bg-panel: #0b0f14;
+  --grid-line-color: #10161d;
+  --accent-cyan: #4df3ff;
+  --accent-magenta: #ff5ec4;
+  --accent-amber: #ffb454;
+  --accent-green: #4dff9f;
+  --accent-red: #ff5c5c;
+  --text-primary: #d8f3ff;
+  --text-dim: #5b7280;
+  --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
+}

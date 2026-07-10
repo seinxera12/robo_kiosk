@@ -1,0 +1,492 @@
+/* Neo-HUD console shell (spec §2, §6). Static grid + panel chrome only. */
+
+#console-root {
+  display: grid;
+  grid-template-columns: 280px 1fr 320px;
+  grid-template-rows: 48px 1fr 72px;
+  grid-template-areas:
+    "topbar topbar topbar"
+    "left   center right"
+    "bottom bottom bottom";
+  height: 100vh;
+  gap: 1px;
+  background: var(--grid-line-color);
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Subtle scanline/dot-grid texture behind everything (spec §6). */
+#console-root::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: var(--bg-void)
+    repeating-linear-gradient(
+      0deg,
+      rgba(216, 243, 255, 0.03) 0px,
+      rgba(216, 243, 255, 0.03) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+}
+
+.console-panel {
+  position: relative;
+  z-index: 1;
+  background: var(--bg-panel);
+  border: 1px solid var(--grid-line-color);
+  box-shadow: inset 0 0 20px rgba(77, 243, 255, 0.03);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.console-panel-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--grid-line-color);
+}
+
+/* Accordion header is a <button> (spec §7 mobile collapse) but reads
+   identically to the plain header on desktop, where it's not interactive. */
+.accordion-toggle {
+  width: 100%;
+  font-family: var(--font-mono);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--grid-line-color);
+  cursor: default;
+  text-align: left;
+}
+.accordion-chevron {
+  display: none;
+  margin-left: auto;
+  color: var(--text-dim);
+}
+
+.console-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.75rem;
+}
+
+.status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--text-dim);
+  flex: none;
+}
+.status-dot.on {
+  background: var(--accent-green);
+}
+.status-dot.pending {
+  background: var(--accent-amber);
+}
+.status-dot.error {
+  background: var(--accent-red);
+}
+
+/* Top bar (spec §3.1) */
+.topbar {
+  grid-area: topbar;
+  flex-direction: row;
+  align-items: center;
+  padding: 0 0.9rem;
+  gap: 1rem;
+  font-size: 0.8rem;
+}
+.topbar-wordmark {
+  letter-spacing: 0.12em;
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+.topbar-cursor {
+  display: inline-block;
+  width: 0.55em;
+  height: 1em;
+  background: var(--accent-cyan);
+  margin-left: 0.2em;
+  vertical-align: text-bottom;
+  animation: blink-cursor 1s steps(2, start) infinite;
+}
+.topbar-conn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.topbar-spacer {
+  flex: 1;
+}
+.topbar-clock {
+  color: var(--text-dim);
+}
+
+.topbar-mode {
+  display: flex;
+  border: 1px solid var(--grid-line-color);
+}
+.mode-btn {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+}
+.mode-btn + .mode-btn {
+  border-left: 1px solid var(--grid-line-color);
+}
+.mode-btn.active {
+  color: var(--accent-cyan);
+  background: rgba(77, 243, 255, 0.08);
+}
+
+.console-soft-error {
+  position: fixed;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  background: var(--bg-panel);
+  border: 1px solid var(--accent-red);
+  box-shadow: 0 0 16px rgba(255, 92, 92, 0.25);
+  padding: 0.5rem 1rem;
+  max-width: 90vw;
+}
+
+/* Panel placement */
+.panel-left {
+  grid-area: left;
+}
+.panel-center {
+  grid-area: center;
+  position: relative;
+}
+.panel-right {
+  grid-area: right;
+}
+.panel-bottom {
+  grid-area: bottom;
+  flex-direction: row;
+  align-items: center;
+  padding: 0 0.75rem;
+  gap: 0.75rem;
+}
+
+/* Composer (spec §3.5) */
+.composer {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  font-family: var(--font-mono);
+}
+.composer-form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+}
+.composer-prompt {
+  color: var(--accent-cyan);
+}
+.composer-form input {
+  flex: 1;
+  font-family: var(--font-mono);
+  background: var(--bg-void);
+  color: var(--text-primary);
+  border: 1px solid var(--grid-line-color);
+  padding: 0.4rem 0.6rem;
+}
+.composer-form button {
+  font-family: var(--font-mono);
+  background: transparent;
+  color: var(--accent-cyan);
+  border: 1px solid var(--grid-line-color);
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+}
+.composer-form button:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.composer-mic {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--grid-line-color);
+  padding: 0.5rem 0.9rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: box-shadow 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.composer-mic:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.composer-mic.live {
+  color: var(--accent-green);
+  border-color: var(--accent-green);
+  box-shadow: 0 0 10px rgba(77, 255, 159, 0.4);
+}
+
+.composer-mute {
+  background: transparent;
+  border: 1px solid var(--grid-line-color);
+  padding: 0.4rem 0.6rem;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.composer-mute.muted {
+  border-color: var(--accent-amber);
+}
+
+@keyframes blink-cursor {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .topbar-cursor {
+    animation: none;
+  }
+}
+
+/* Input Visualizer (spec §3.2) */
+.mic-level-num {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.input-visualizer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  position: relative;
+}
+.waveform {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  height: 60%;
+  min-height: 60px;
+}
+.bar {
+  flex: 1;
+  max-width: 6px;
+  background: var(--accent-cyan);
+  border-radius: 1px;
+  transition: height 80ms ease-out;
+  opacity: 0.35;
+}
+.vis-idle .bar {
+  background: var(--text-dim);
+  opacity: 0.5;
+}
+.vis-listening .bar {
+  opacity: 0.55;
+}
+.vis-speech_detected .bar {
+  background: var(--accent-cyan);
+  opacity: 1;
+  box-shadow: 0 0 6px rgba(77, 243, 255, 0.5);
+}
+.vis-idle-label {
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+}
+.stt-flash {
+  font-style: italic;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  text-align: center;
+  padding: 0 0.5rem;
+}
+
+/* System Trace (spec §3.4) */
+.system-trace-body {
+  font-size: 0.78rem;
+  line-height: 1.7;
+}
+.trace-empty {
+  color: var(--text-dim);
+}
+.trace-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.trace-ts {
+  color: var(--text-dim);
+  font-size: 0.7rem;
+}
+.trace-glyph {
+  display: inline-block;
+  width: 1em;
+}
+.trace-pending .trace-glyph {
+  color: var(--text-dim);
+}
+.trace-active .trace-glyph {
+  color: var(--accent-amber);
+  animation: pulse-glyph 1.2s ease-in-out infinite;
+}
+.trace-done .trace-glyph {
+  color: var(--accent-green);
+}
+.trace-error .trace-glyph {
+  color: var(--accent-red);
+}
+@keyframes pulse-glyph {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .trace-active .trace-glyph {
+    animation: none;
+  }
+}
+
+/* Transcript (spec §3.3) */
+.transcript-body {
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+.transcript-empty {
+  color: var(--text-dim);
+  text-align: center;
+}
+.log-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.log-ts {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.log-arrow {
+  color: var(--text-dim);
+}
+.log-line-user .log-actor {
+  color: var(--accent-cyan);
+}
+.log-line-user .log-text {
+  color: var(--accent-amber);
+}
+.log-line-assistant .log-actor {
+  color: var(--accent-magenta);
+}
+.log-line-assistant .log-text {
+  color: var(--text-primary);
+}
+.log-cursor {
+  color: var(--accent-magenta);
+  animation: blink-cursor 1s steps(2, start) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .log-cursor {
+    animation: none;
+  }
+}
+
+.log-line-speaking {
+  border-left: 2px solid var(--accent-magenta);
+  padding-left: 0.5rem;
+  margin-left: -0.5rem;
+  animation: speaking-glow 1.4s ease-in-out infinite;
+}
+@keyframes speaking-glow {
+  50% {
+    border-left-color: rgba(255, 94, 196, 0.3);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .log-line-speaking {
+    animation: none;
+  }
+}
+
+.scroll-pill {
+  position: absolute;
+  bottom: 0.6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-primary);
+  background: var(--bg-panel);
+  border: 1px solid var(--accent-cyan);
+  border-radius: 999px;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+  box-shadow: 0 0 12px rgba(77, 243, 255, 0.15);
+}
+
+/* Responsive collapse (spec §7). Below 1024px: stack topbar / transcript
+   (tallest, primary) / left+right as collapsible accordions / bottom. */
+@media (max-width: 1024px) {
+  #console-root {
+    grid-template-columns: 1fr;
+    grid-template-rows: 48px minmax(50vh, auto) auto auto 72px;
+    grid-template-areas:
+      "topbar"
+      "center"
+      "left"
+      "right"
+      "bottom";
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .panel-left,
+  .panel-right {
+    max-height: 40vh;
+  }
+
+  .accordion-toggle {
+    cursor: pointer;
+  }
+  .accordion-chevron {
+    display: inline-block;
+  }
+
+  /* Collapsed: header stays, body hidden — panel becomes a thin strip. */
+  .console-panel.is-collapsed {
+    max-height: none;
+  }
+  .console-panel.is-collapsed .console-panel-body {
+    display: none;
+  }
+}
