@@ -89,7 +89,7 @@ export const actions = {
 
   /** Add a user bubble (typed local echo — REF §3.3.2 — or voice transcript). */
   addUserBubble(text: string): void {
-    const bubble: Bubble = { id: nextId(), role: "user", text, open: false };
+    const bubble: Bubble = { id: nextId(), role: "user", text, open: false, ts: Date.now() };
     set({ bubbles: [...state.bubbles, bubble] });
   },
 
@@ -106,6 +106,7 @@ export const actions = {
         role: "assistant",
         text,
         open: true,
+        ts: Date.now(),
       };
       set({ bubbles: [...state.bubbles, bubble], responseStarted: true });
       return;

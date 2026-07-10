@@ -7,6 +7,12 @@ import { StatusBar } from "./components/StatusBar";
 import { MicButton } from "./components/MicButton";
 import { HealthPanel } from "./components/HealthPanel";
 
+/**
+ * @deprecated Superseded by the Neo-HUD console (components/console/ConsoleRoot).
+ * Kept as a fallback/reference — render with `?legacy=1` — until the
+ * preserve-functionality checklist (.devnotes/ui-changes) is manually
+ * verified against a real backend. Do not build new features on this path.
+ */
 export function App() {
   const session = useSession();
   const softError = useStore((s) => s.softError);

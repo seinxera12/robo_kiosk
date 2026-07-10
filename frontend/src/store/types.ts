@@ -25,4 +25,6 @@ export interface Bubble {
   text: string;
   /** assistant bubble still receiving tokens (REF §3.9.5). */
   open: boolean;
+  /** ms since epoch when the bubble was created; for display timestamps only. */
+  ts: number;
 }

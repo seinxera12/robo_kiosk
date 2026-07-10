@@ -11,6 +11,7 @@
  * completes: if no audio frame ever arrived, the text-final alone completes it.
  */
 import { actions, getSnapshot } from "../store/store";
+import { appendTrace } from "../store/systemTraceStore";
 import type { AudioPlayer } from "../audio/AudioPlayer";
 
 const IDLE_WINDOW_MS = 500; // OQ-5
@@ -60,8 +61,13 @@ export class PlaybackTracker {
   }
 
   private complete(): void {
+    const wasSpeaking = getSnapshot().status === "speaking";
+    const hadAudio = this.sawAudio;
     this.reset();
-    if (getSnapshot().status === "speaking") actions.setStatus("listening");
+    if (wasSpeaking) {
+      actions.setStatus("listening");
+      if (hadAudio) appendTrace("done", "tts: playback complete");
+    }
   }
 
   /** Reset per-turn tracking (called on new turn / barge-in flush). */

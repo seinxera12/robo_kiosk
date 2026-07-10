@@ -12,7 +12,7 @@
  */
 import { actions } from "../store/store";
 import { getSnapshot } from "../store/store";
-import { dispatchEvent, type DispatchHooks } from "../store/eventDispatch";
+import { dispatchEvent, resetTurnTrace, type DispatchHooks } from "../store/eventDispatch";
 import { ConnectionManager } from "./ConnectionManager";
 import {
   encodeInterrupt,
@@ -82,6 +82,7 @@ export class SessionController {
 
     // Barge-in: sending preempts any in-progress response (REF §3.3.2).
     this.audio.flush();
+    resetTurnTrace();
     // Close any dangling assistant bubble locally so the next turn is clean.
     if (getSnapshot().responseStarted) actions.finishAssistantResponse();
 
@@ -98,6 +99,7 @@ export class SessionController {
     if (!this.conn.isReady()) return false;
     // Voice barge-in: stop local playback; server auto-interrupts (REF §3.6).
     this.audio.flush();
+    resetTurnTrace();
     if (getSnapshot().responseStarted) actions.finishAssistantResponse();
     actions.setStatus("thinking");
     this.hooks.onSend?.();

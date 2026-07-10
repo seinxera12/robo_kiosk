@@ -5,9 +5,10 @@
  * ONE binary frame (REF §3.3.4, §3.9.1). Two modes:
  *   - manualSpeak (push-to-talk): buffer between start()/stop(); the guaranteed
  *     path. 15 s auto-flush timeout (REF §5.2).
- *   - alwaysListen (VAD): uses @ricky0123/vad-web (Silero) to detect end-of-
- *     speech; a ~300 ms pre-roll avoids onset clipping (REF §5.2). Falls back to
- *     PTT if VAD fails to load (REF §5.2 edge case).
+ *   - alwaysListen (VAD): lightweight energy/RMS detector that runs entirely on
+ *     the existing AudioCapture frame stream — no WASM, no external packages.
+ *     A ~300 ms pre-roll avoids onset clipping (REF §5.2). Falls back to PTT
+ *     if VAD cannot start (REF §5.2 edge case).
  *
  * Enforces the >=0.5 s / >=16000-byte minimum: shorter utterances are dropped
  * client-side before sending (REF §3.3.4).
@@ -21,6 +22,19 @@ import { CAPTURE_SAMPLE_RATE } from "./resample";
 const MIN_UTTERANCE_BYTES = 16000; // 0.5 s @ 16 kHz PCM16 (REF §3.3.4)
 const PREROLL_MS = 300;
 const MANUAL_SPEAK_TIMEOUT_MS = 15000; // REF §5.2
+
+// Energy VAD tuning (REF §5.2). Browser AEC/NS is already on, so these
+// thresholds can be kept low. Tune empirically for the deployment environment.
+//
+// SPEECH_THRESHOLD  – RMS above which a frame is considered "speech".
+// SILENCE_THRESHOLD – RMS below which a frame is considered "silence"
+//                     (hysteresis: lower than SPEECH to avoid choppy cuts).
+// MIN_SPEECH_MS     – Minimum consecutive speech before we open the utterance.
+// MIN_SILENCE_MS    – Minimum consecutive silence before we close it.
+const SPEECH_THRESHOLD = 0.01; // ~-40 dBFS
+const SILENCE_THRESHOLD = 0.006; // ~-44 dBFS  (hysteresis gap)
+const MIN_SPEECH_MS = 200;
+const MIN_SILENCE_MS = 800;
 
 export type SegmenterMode = "manualSpeak" | "alwaysListen";
 
@@ -41,7 +55,12 @@ export class VadSegmenter {
   private buffering = false;
   private unsubscribe: (() => void) | null = null;
   private manualTimeout: ReturnType<typeof setTimeout> | null = null;
-  private vad: { start: () => void; pause: () => void; destroy: () => void } | null = null;
+
+  // Energy VAD state
+  private vadActive = false;
+  private vadSpeechMs = 0;
+  private vadSilenceMs = 0;
+  private vadUnsubscribe: (() => void) | null = null;
 
   constructor(opts: VadSegmenterOptions) {
     this.capture = opts.capture;
@@ -99,39 +118,67 @@ export class VadSegmenter {
   // ------------------------------- VAD -------------------------------------
 
   /**
-   * Enable always-listen VAD. Dynamically imports vad-web; on failure the
-   * caller should fall back to PTT (this rejects). We drive the buffer from our
-   * own capture frames using VAD's speech start/end callbacks.
+   * Enable always-listen VAD using a lightweight RMS energy detector.
+   * Runs entirely on the AudioCapture frame stream — no WASM, no external deps.
+   * Returns immediately (synchronous setup wrapped in a Promise for API parity
+   * with the old vad-web path so callers can still catch failures).
    */
   async startVad(): Promise<void> {
-    // NOTE: MicVAD opens its own mic stream for detection; we use it purely for
-    // speech start/end *timing* and still send audio from our own AudioCapture
-    // buffer (which is guaranteed 16 kHz PCM16). Two streams are open in this
-    // mode — acceptable since VAD is the convenience path; PTT is the guaranteed
-    // one (REF §5.2, OQ-4). Tune thresholds empirically.
+    if (this.vadActive) return;
     this.attach();
-    const mod = await import("@ricky0123/vad-web");
-    const vad = await mod.MicVAD.new({
-      // Desktop parity (REF §5.2, OQ-4); tune empirically.
-      positiveSpeechThreshold: 0.3,
-      minSpeechMs: 200, // desktop min-speech (REF §5.2)
-      redemptionMs: 800, // ~800 ms min-silence (REF §5.2)
-      onSpeechStart: () => {
-        this.frames = [...this.prerollFrames];
-        this.buffering = true;
-      },
-      onSpeechEnd: () => {
-        this.buffering = false;
-        this.emit();
-      },
+    this.vadActive = true;
+    this.vadSpeechMs = 0;
+    this.vadSilenceMs = 0;
+
+    // Approximate milliseconds per worklet frame at the capture sample rate.
+    const msPerFrame = (128 / this.capture.sampleRate) * 1000;
+
+    this.vadUnsubscribe = this.capture.onFrame((frame) => {
+      if (!this.vadActive) return;
+
+      // Compute RMS of this frame.
+      let sum = 0;
+      for (let i = 0; i < frame.length; i++) sum += frame[i] * frame[i];
+      const rms = Math.sqrt(sum / frame.length);
+
+      if (!this.buffering) {
+        // SILENCE state — waiting for speech onset.
+        if (rms >= SPEECH_THRESHOLD) {
+          this.vadSpeechMs += msPerFrame;
+          if (this.vadSpeechMs >= MIN_SPEECH_MS) {
+            // Confirmed speech start → open utterance with pre-roll.
+            this.frames = [...this.prerollFrames];
+            this.buffering = true;
+            this.vadSilenceMs = 0;
+          }
+        } else {
+          this.vadSpeechMs = 0;
+        }
+      } else {
+        // SPEAKING state — waiting for end-of-speech silence.
+        if (rms < SILENCE_THRESHOLD) {
+          this.vadSilenceMs += msPerFrame;
+          if (this.vadSilenceMs >= MIN_SILENCE_MS) {
+            // Confirmed silence → close utterance and emit.
+            this.buffering = false;
+            this.vadSpeechMs = 0;
+            this.emit();
+          }
+        } else {
+          this.vadSilenceMs = 0;
+        }
+      }
     });
-    vad.start();
-    this.vad = vad;
   }
 
   stopVad(): void {
-    this.vad?.pause();
-    this.buffering = false;
+    this.vadActive = false;
+    this.vadUnsubscribe?.();
+    this.vadUnsubscribe = null;
+    if (this.buffering) {
+      this.buffering = false;
+      this.emit();
+    }
   }
 
   // ------------------------------ Shared -----------------------------------
@@ -152,8 +199,6 @@ export class VadSegmenter {
   dispose(): void {
     this.stopVad();
     if (this.manualTimeout) clearTimeout(this.manualTimeout);
-    this.vad?.destroy();
-    this.vad = null;
     this.detach();
   }
 }
