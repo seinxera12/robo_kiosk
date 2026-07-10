@@ -14,6 +14,7 @@
  * reconnect with backoff.
  */
 import { actions } from "../store/store";
+import { appendTrace } from "../store/systemTraceStore";
 import {
   decodeInbound,
   encodeSessionStart,
@@ -74,6 +75,7 @@ export class ConnectionManager {
 
     ws.onopen = () => {
       // Reconnect => fresh server session: re-send session_start (REF §3.8, §7).
+      appendTrace("done", "socket connected");
       actions.setConnection("connected");
       this.send(encodeSessionStart(this.opts.kioskId, this.opts.kioskLocation), true);
     };
@@ -101,9 +103,11 @@ export class ConnectionManager {
       this.ws = null;
       this.acked = false;
       if (this.closedByUs) {
+        appendTrace("done", "socket closed");
         actions.setConnection("disconnected");
         return;
       }
+      appendTrace("error", "socket dropped, reconnecting...");
       this.scheduleReconnect();
     };
   }

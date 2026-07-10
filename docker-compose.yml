@@ -60,8 +60,6 @@ services:
     depends_on:
       ollama:
         condition: service_started
-      voicevox:
-        condition: service_healthy
       searxng:
         condition: service_started
     networks:
@@ -143,10 +141,14 @@ services:
     volumes:
       - ./searxng:/etc/searxng:rw
     environment:
-      - SEARXNG_BASE_URL=http://localhost:8080/
+      - SEARXNG_BASE_URL=http://searxng:8080/
       - SEARXNG_SECRET=${SEARXNG_SECRET:-changeme}
+      - UWSGI_WORKERS=4
+      - UWSGI_THREADS=4
     networks:
       - voice-network
+    depends_on:
+      - searxng-redis
     restart: unless-stopped
     cap_drop:
       - ALL
@@ -155,6 +157,14 @@ services:
       - SETGID
       - SETUID
       - DAC_OVERRIDE
+
+  searxng-redis:
+    image: redis:alpine
+    container_name: searxng-redis
+    command: redis-server --save "" --appendonly no
+    networks:
+      - voice-network
+    restart: unless-stopped
 
 networks:
   voice-network:

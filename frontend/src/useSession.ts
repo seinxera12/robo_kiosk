@@ -9,6 +9,7 @@ import { PlaybackTracker } from "./services/PlaybackTracker";
 export interface Session {
   controller: SessionController;
   voice: VoiceController;
+  player: AudioPlayer;
 }
 
 /**
@@ -52,7 +53,7 @@ export function useSession(): Session | null {
     });
 
     controller.start();
-    setSession({ controller, voice });
+    setSession({ controller, voice, player });
 
     return () => {
       guard.disarm();

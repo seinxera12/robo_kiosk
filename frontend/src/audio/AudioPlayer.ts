@@ -25,9 +25,12 @@ const workletUrl = new URL("./playback-worklet.ts", import.meta.url).href;
 export class AudioPlayer implements AudioSink {
   private ctx: AudioContext | null = null;
   private node: AudioWorkletNode | null = null;
+  private gainNode: GainNode | null = null;
   private ready: Promise<void> | null = null;
   private pending: Float32Array[] = [];
   private disposed = false;
+  private muted = false;
+  private volume = 1;
 
   onDrained: (() => void) | null = null;
 
@@ -44,9 +47,13 @@ export class AudioPlayer implements AudioSink {
       node.port.onmessage = (e: MessageEvent) => {
         if (e.data?.type === "drained") this.onDrained?.();
       };
-      node.connect(ctx.destination);
+      const gainNode = ctx.createGain();
+      gainNode.gain.value = this.muted ? 0 : this.volume;
+      node.connect(gainNode);
+      gainNode.connect(ctx.destination);
       this.ctx = ctx;
       this.node = node;
+      this.gainNode = gainNode;
       // Flush any samples that arrived before the graph was ready.
       for (const s of this.pending) node.port.postMessage({ type: "push", samples: s }, [s.buffer]);
       this.pending = [];
@@ -75,16 +82,30 @@ export class AudioPlayer implements AudioSink {
     this.node?.port.postMessage({ type: "flush" });
   }
 
+  /** Mute/unmute TTS output (Composer volume toggle). Does not affect queued audio. */
+  setMuted(muted: boolean): void {
+    this.muted = muted;
+    if (this.gainNode) this.gainNode.gain.value = muted ? 0 : this.volume;
+  }
+
+  /** Set TTS output volume, 0-1 (Composer volume control). */
+  setVolume(volume: number): void {
+    this.volume = Math.min(1, Math.max(0, volume));
+    if (this.gainNode && !this.muted) this.gainNode.gain.value = this.volume;
+  }
+
   dispose(): void {
     this.disposed = true;
     this.flush();
     try {
       this.node?.disconnect();
+      this.gainNode?.disconnect();
     } catch {
       /* ignore */
     }
     void this.ctx?.close().catch(() => {});
     this.ctx = null;
     this.node = null;
+    this.gainNode = null;
   }
 }
