@@ -194,7 +194,7 @@ After adding documents, re-run ingestion:
 - A secure context (https:// or localhost) is required for `getUserMedia`
 
 **WebSocket connection failed:**
-- Check server is running: `curl http://<server>:8000/health`
+- Check server is running: `curl http://<server>:8765/health`
 - Verify `VITE_SERVER_WS_URL` points at the server
 - Check network connectivity and firewall rules
 

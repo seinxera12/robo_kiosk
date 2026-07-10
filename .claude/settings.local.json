@@ -76,7 +76,8 @@
       "PowerShell(wsl.exe -d Ubuntu -e bash -lc 'cat /home/seinxera12/robotic_robo/frontend/node_modules/@ricky0123/vad-web/package.json 2>/dev/null | head -40')",
       "PowerShell(wsl.exe -d Ubuntu -e bash -lc 'grep -rn \"baseAssetPath\\\\|silero_vad\\\\|onnxWASMBasePath\\\\|wasmPaths\" /home/seinxera12/robotic_robo/frontend/node_modules/@ricky0123/vad-web/dist/index.js 2>/dev/null | head -30')",
       "PowerShell(wsl.exe -d Ubuntu -e bash -lc 'grep -n \"silero_vad\\\\|modelURL\\\\|onnxWASMBasePath\\\\|wasmPaths\\\\|ort\\\\.env\" /home/seinxera12/robotic_robo/frontend/node_modules/@ricky0123/vad-web/dist/real-time-vad.js 2>/dev/null')",
-      "PowerShell(wsl.exe -d Ubuntu -e bash -lc 'pkill -f \"vite\" 2>/dev/null; sleep 1; echo \"killed all vite\"; ps aux | grep -c \"[v]ite\"')"
+      "PowerShell(wsl.exe -d Ubuntu -e bash -lc 'pkill -f \"vite\" 2>/dev/null; sleep 1; echo \"killed all vite\"; ps aux | grep -c \"[v]ite\"')",
+      "Bash(OLLAMA_BASE_URL=http://ollama:11434/v1 python -c ' *)"
     ],
     "additionalDirectories": [
       "\\mnt\\c\\Users\\ADMINI~1\\AppData\\Local\\Temp\\claude"

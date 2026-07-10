@@ -86,11 +86,20 @@ app = FastAPI(
 )
 
 
-# Add CORS middleware (Requirement 3.1)
+# Add CORS middleware (Requirement 3.1).
+# Origins are driven by ALLOWED_ORIGINS (comma-separated); default "*" keeps the
+# permissive kiosk behaviour. A wildcard origin is incompatible with
+# allow_credentials=True in browsers, and the WS handshake here uses no cookies,
+# so credentials are disabled.
+import os as _os
+
+_allowed_origins = [
+    o.strip() for o in _os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for kiosk deployment
-    allow_credentials=True,
+    allow_origins=_allowed_origins,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -121,6 +130,16 @@ async def health_check():
             "building_name": config.building_name,
             "stt_model": config.stt_model,
         }
+
+    # Component readiness. Heavy models load during lifespan startup; report
+    # whether each is present so orchestration/monitoring can tell "process up"
+    # apart from "ready to serve".
+    components = {
+        "stt": "ready" if app_state.get("stt") else "not_loaded",
+        "llm_chain": "ready" if app_state.get("llm_chain") else "not_loaded",
+        "rag": "ready" if app_state.get("rag") else "not_loaded",
+    }
+    health_status["components"] = components
 
     # Check TTS engine status
     if tts_router:

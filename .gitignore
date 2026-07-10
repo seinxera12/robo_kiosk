@@ -16,8 +16,14 @@ __pycache__/
 # Model weights
 models/
 
+# Frontend / legacy client build artifacts (not needed on the server)
+frontend/dist/
+frontend/node_modules/
+client/__pycache__/
+
 # Virtual environment
 client-venv/
+client/client-venv/
 venv/
 env/
 ENV/

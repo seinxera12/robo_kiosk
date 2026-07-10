@@ -95,7 +95,7 @@ health:
 	@docker compose ps
 	@echo ""
 	@echo "=== voice-server health ==="
-	@curl -f http://localhost:8000/health 2>/dev/null && echo "✓ voice-server is healthy" || echo "✗ voice-server is unhealthy"
+	@curl -f http://localhost:8765/health 2>/dev/null && echo "✓ voice-server is healthy" || echo "✗ voice-server is unhealthy"
 	@echo ""
 	@echo "=== vLLM health ==="
 	@curl -f http://localhost:8001/health 2>/dev/null && echo "✓ vLLM is healthy" || echo "✗ vLLM is unhealthy"

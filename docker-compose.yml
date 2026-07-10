@@ -1,5 +1,18 @@
 version: '3.8'
 
+# Production compose for the backend-only deployment. The dev source bind-mount
+# lives in docker-compose.override.yml (auto-loaded for local dev only).
+#
+# Host ports and the GPU index are env-driven so this file needs no edits to
+# coexist with other services on a shared server. Defaults preserve prior values.
+# Override in .env, e.g.  SERVER_PORT_HOST=9765  GPU_DEVICE_IDS=1
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   # Main voice server - handles STT, LLM orchestration, TTS, RAG
   voice-server:
@@ -8,40 +21,53 @@ services:
       dockerfile: Dockerfile
     container_name: voice-server
     ports:
-      - "8765:8765"  # WebSocket endpoint
-      - "8000:8000"  # HTTP health check endpoint
+      - "${SERVER_PORT_HOST:-8765}:8765"  # WebSocket + HTTP health endpoint
     volumes:
       - ./models:/models:ro  # Read-only model weights
       - ./building_kb:/building_kb:ro  # Read-only knowledge base
       - ./chroma_data:/chroma  # Persistent ChromaDB storage
-      - ./server:/app/server  # Development: mount source code
+      - ./voices_reference:/voices_reference:ro  # KokoClone reference audio
     environment:
-      # vLLM configuration
+      # vLLM configuration (primary LLM backend)
       - VLLM_BASE_URL=http://vllm:8001/v1
-      - VLLM_MODEL_NAME=Qwen/Qwen2.5-7B-Instruct-AWQ
-      
-      # Ollama configuration
-      - OLLAMA_BASE_URL=http://ollama:11434/v1
-      - OLLAMA_MODEL_NAME=qwen2.5:7b-instruct
-      
-      # Grok API configuration (optional fallback)
+      - VLLM_MODEL_NAME=${VLLM_MODEL_NAME:-Qwen/Qwen2.5-7B-Instruct-AWQ}
+
+      # Ollama configuration (secondary LLM backend)
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL_NAME=${OLLAMA_MODEL_NAME:-qwen2.5:7b-instruct}
+
+      # Grok API configuration (optional cloud fallback)
       - GROK_API_KEY=${GROK_API_KEY:-}
-      
+
       # STT configuration
-      - STT_MODEL=large-v3
-      - STT_COMPUTE_TYPE=int8
-      
+      - STT_MODEL=${STT_MODEL:-large-v3}
+      - STT_COMPUTE_TYPE=${STT_COMPUTE_TYPE:-int8}
+      - STT_DEVICE=${STT_DEVICE:-cuda}
+
       # TTS configuration
-      # English: Kokoro-82M (in-process). Japanese: KokoClone microservice -> Kokoro-82M JP.
+      # English: Kokoro-82M (in-process). Japanese: KokoClone microservice or Kokoro JP.
       - KOKOCLONE_URL=${KOKOCLONE_URL:-http://localhost:5003}
+      - KOKOCLONE_ENABLED=${KOKOCLONE_ENABLED:-false}
+      - KOKOCLONE_REF_AUDIO=${KOKOCLONE_REF_AUDIO:-/voices_reference/ref.wav}
+      - KOKORO_DEVICE=${KOKORO_DEVICE:-cpu}
 
       # RAG configuration
       - CHROMADB_PATH=/chroma
+      - USE_RAG=${USE_RAG:-true}
       - BUILDING_NAME=${BUILDING_NAME:-Office Building}
-      
+
       # SearXNG configuration
       - SEARXNG_URL=http://searxng:8080
-      
+
+      # Query reformulator (search) — talks to the ollama service
+      - REFORMULATOR_MODEL=${REFORMULATOR_MODEL:-qwen2.5:3b-instruct}
+
+      # CORS — comma-separated origins; "*" for open kiosk access
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
+
+      # Server port (bind inside container)
+      - SERVER_PORT=8765
+
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     deploy:
@@ -49,72 +75,78 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              device_ids: ["${GPU_DEVICE_IDS:-0}"]
               capabilities: [gpu]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8765/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 180s
     depends_on:
+      vllm:
+        condition: service_started
       ollama:
         condition: service_started
       searxng:
         condition: service_started
     networks:
       - voice-network
+    logging: *default-logging
     restart: unless-stopped
 
-  # vLLM - Primary LLM inference engine (GPU-accelerated)
-  #vllm:
-  #  image: vllm/vllm-openai:latest
-  #  container_name: vllm
-  #  ports:
-  #    - "8001:8001"
-  #  volumes:
-  #    - ./models:/models:ro
-  #    - ~/.cache/huggingface:/root/.cache/huggingface
-  #  environment:
-  #    - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
-  #  command:
-  #    - --model
-  #    - Qwen/Qwen2.5-7B-Instruct-AWQ
-  #    - --quantization
-  #    - awq
-  #    - --dtype
-  #    - float16
-  #    - --max-model-len
-  #    - "4096"
-  #    - --gpu-memory-utilization
-  #    - "0.90"
-  #    - --port
-  #    - "8001"
-  #    - --host
-  #    - "0.0.0.0"
-  #  deploy:
-  #    resources:
-  #      reservations:
-  #        devices:
-  #          - driver: nvidia
-  #            count: 1
-  #            capabilities: [gpu]
-  #  healthcheck:
-  #    test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-  #    interval: 30s
-  #    timeout: 10s
-  #    retries: 3
-  #    start_period: 120s
-  #  networks:
-  #    - voice-network
-  #  restart: unless-stopped
+  # vLLM - Primary LLM inference engine (GPU-accelerated).
+  # GPU memory is scoped down (default 0.45) so it coexists with the server's
+  # other GPU workloads; size VLLM_GPU_MEM_UTIL against free VRAM (nvidia-smi).
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: vllm
+    ports:
+      - "${VLLM_PORT_HOST:-8001}:8001"
+    volumes:
+      - ./models:/models:ro
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+    command:
+      - --model
+      - ${VLLM_MODEL_NAME:-Qwen/Qwen2.5-7B-Instruct-AWQ}
+      - --quantization
+      - awq
+      - --dtype
+      - float16
+      - --max-model-len
+      - "${VLLM_MAX_MODEL_LEN:-4096}"
+      - --gpu-memory-utilization
+      - "${VLLM_GPU_MEM_UTIL:-0.45}"
+      - --port
+      - "8001"
+      - --host
+      - "0.0.0.0"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${GPU_DEVICE_IDS:-0}"]
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+    networks:
+      - voice-network
+    logging: *default-logging
+    restart: unless-stopped
 
   # Ollama - Secondary LLM inference engine (CPU/GPU fallback)
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
     ports:
-      - "11434:11434"
+      - "${OLLAMA_PORT_HOST:-11434}:11434"
     volumes:
       - ./models/ollama:/root/.ollama
       - ollama_data:/root/.ollama
@@ -122,6 +154,7 @@ services:
       - OLLAMA_HOST=0.0.0.0:11434
     networks:
       - voice-network
+    logging: *default-logging
     restart: unless-stopped
     # Note: Ollama can use GPU if available, but also works on CPU
     deploy:
@@ -129,7 +162,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              device_ids: ["${GPU_DEVICE_IDS:-0}"]
               capabilities: [gpu]
 
   # SearXNG - Self-hosted web search service
@@ -137,7 +170,7 @@ services:
     image: searxng/searxng:latest
     container_name: searxng
     ports:
-      - "8081:8080"
+      - "${SEARXNG_PORT_HOST:-8081}:8080"
     volumes:
       - ./searxng:/etc/searxng:rw
     environment:
@@ -149,6 +182,7 @@ services:
       - voice-network
     depends_on:
       - searxng-redis
+    logging: *default-logging
     restart: unless-stopped
     cap_drop:
       - ALL
@@ -164,6 +198,7 @@ services:
     command: redis-server --save "" --appendonly no
     networks:
       - voice-network
+    logging: *default-logging
     restart: unless-stopped
 
 networks:
