@@ -1,12 +1,17 @@
 # Environment variables
 .env
-.env.localf
+.env.local
 
 # Python cache
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
+
+# Test / build caches
+.hypothesis/
+.pytest_cache/
+*.tsbuildinfo
 
 # Model weights
 models/
@@ -31,16 +36,23 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
 
 # ChromaDB data
 chroma_data/
+chroma_db/
 chroma/
 *.db
+
+# Host environment snapshots
+env_snapshots/
 
 # Temporary files
 *.tmp
 *.bak
-.env.local
+
+# Windows download metadata
+*:Zone.Identifier
 
 # Audio Tests Files
 *.wav

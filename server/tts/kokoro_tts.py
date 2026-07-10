@@ -11,8 +11,8 @@ Classes:
 Both classes share a single-threaded executor so they never contend with each
 other (a conversation is always one language at a time).
 
-Audio output: WAV bytes at 24 kHz, mono, PCM16 — same format as CosyVoice2
-and VOICEVOX so the rest of the pipeline needs no changes.
+Audio output: WAV bytes at 24 kHz, mono, PCM16 — the common format the rest
+of the pipeline consumes across all TTS engines.
 
 Dependencies:
     pip install kokoro>=0.9.4 soundfile numpy

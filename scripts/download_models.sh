@@ -24,11 +24,12 @@ mkdir -p "$MODELS_DIR/embeddings"
 # Example: huggingface-cli download intfloat/multilingual-e5-large --local-dir "$MODELS_DIR/embeddings"
 echo "  Placeholder: E5 model download not yet implemented"
 
-# CosyVoice2-0.5B
-echo "[3/4] Downloading CosyVoice2-0.5B..."
-mkdir -p "$MODELS_DIR/cosyvoice"
+# Kokoro-82M
+echo "[3/4] Downloading Kokoro-82M..."
+mkdir -p "$MODELS_DIR/kokoro"
 # TODO: Add actual download command
-echo "  Placeholder: CosyVoice2 model download not yet implemented"
+# Example: huggingface-cli download hexgrad/Kokoro-82M --local-dir "$MODELS_DIR/kokoro"
+echo "  Placeholder: Kokoro model download not yet implemented"
 
 # Qwen2.5-7B-Instruct
 echo "[4/4] Downloading Qwen2.5-7B-Instruct..."

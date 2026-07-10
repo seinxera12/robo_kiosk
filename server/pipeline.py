@@ -748,7 +748,7 @@ class VoicePipeline:
 
                 # Use router-level synthesize_stream so per-request fallback
                 # works automatically: if KokoClone service is down, the router
-                # transparently retries with KokoroJP, then VOICEVOX, etc.
+                # transparently retries with KokoroJP.
                 # No need to call get_engine() — the router handles selection
                 # and fallback internally.
                 async def _synthesize_and_queue(text: str, lang: str) -> None:

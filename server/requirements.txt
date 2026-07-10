@@ -22,8 +22,8 @@ numpy==1.24.3
 soundfile==0.12.1
 
 # TTS engines
-# Note: CosyVoice now runs as separate service (see COSYVOICE_SERVICE_SETUP.md)
-# Kokoro-82M: local English TTS (primary engine)
+# Kokoro-82M: local in-process TTS (English primary, Japanese secondary).
+# KokoClone (Japanese primary) runs as a separate microservice — not a pip dep.
 kokoro>=0.9.4
 misaki[en]>=0.9.4   # English G2P / phonemiser required by Kokoro
 

@@ -32,9 +32,9 @@ services:
       - STT_COMPUTE_TYPE=int8
       
       # TTS configuration
-      - TTS_EN_ENGINE=cosyvoice
-      - TTS_JP_URL=http://voicevox:50021
-      
+      # English: Kokoro-82M (in-process). Japanese: KokoClone microservice -> Kokoro-82M JP.
+      - KOKOCLONE_URL=${KOKOCLONE_URL:-http://localhost:5003}
+
       # RAG configuration
       - CHROMADB_PATH=/chroma
       - BUILDING_NAME=${BUILDING_NAME:-Office Building}
