@@ -28,9 +28,14 @@ services:
       - ./chroma_data:/chroma  # Persistent ChromaDB storage
       - ./voices_reference:/voices_reference:ro  # KokoClone reference audio
     environment:
-      # vLLM configuration (primary LLM backend)
-      - VLLM_BASE_URL=http://vllm:8001/v1
+      # vLLM configuration (primary LLM backend).
+      # Routes to an EXISTING inference endpoint (LiteLLM proxy) already running
+      # on the server — no vLLM container/model is deployed by this stack.
+      # VLLM_BASE_URL must end in /v1 and point at the proxy (service DNS name on
+      # the shared external network, e.g. http://litellm:4000/v1).
+      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://litellm:4000/v1}
       - VLLM_MODEL_NAME=${VLLM_MODEL_NAME:-Qwen/Qwen2.5-7B-Instruct-AWQ}
+      - VLLM_API_KEY=${VLLM_API_KEY:-local}
 
       # Ollama configuration (secondary LLM backend)
       - OLLAMA_BASE_URL=http://ollama:11434
@@ -84,62 +89,19 @@ services:
       retries: 3
       start_period: 180s
     depends_on:
-      vllm:
-        condition: service_started
       ollama:
         condition: service_started
       searxng:
         condition: service_started
     networks:
       - voice-network
+      - llm-proxy        # shared network where the existing LiteLLM proxy runs
     logging: *default-logging
     restart: unless-stopped
 
-  # vLLM - Primary LLM inference engine (GPU-accelerated).
-  # GPU memory is scoped down (default 0.45) so it coexists with the server's
-  # other GPU workloads; size VLLM_GPU_MEM_UTIL against free VRAM (nvidia-smi).
-  vllm:
-    image: vllm/vllm-openai:latest
-    container_name: vllm
-    ports:
-      - "${VLLM_PORT_HOST:-8001}:8001"
-    volumes:
-      - ./models:/models:ro
-      - ~/.cache/huggingface:/root/.cache/huggingface
-    environment:
-      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
-    command:
-      - --model
-      - ${VLLM_MODEL_NAME:-Qwen/Qwen2.5-7B-Instruct-AWQ}
-      - --quantization
-      - awq
-      - --dtype
-      - float16
-      - --max-model-len
-      - "${VLLM_MAX_MODEL_LEN:-4096}"
-      - --gpu-memory-utilization
-      - "${VLLM_GPU_MEM_UTIL:-0.45}"
-      - --port
-      - "8001"
-      - --host
-      - "0.0.0.0"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ["${GPU_DEVICE_IDS:-0}"]
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 180s
-    networks:
-      - voice-network
-    logging: *default-logging
-    restart: unless-stopped
+  # NOTE: no vLLM service here — LLM inference is served by an EXISTING endpoint
+  # (LiteLLM proxy) already running on the server. voice-server reaches it over
+  # the external `llm-proxy` network via VLLM_BASE_URL. Nothing to build/pull.
 
   # Ollama - Secondary LLM inference engine (CPU/GPU fallback)
   ollama:
@@ -204,6 +166,12 @@ services:
 networks:
   voice-network:
     driver: bridge
+  # External network the existing LiteLLM proxy container is attached to.
+  # Set LLM_PROXY_NETWORK to its actual name (find via `docker network ls`).
+  # It is NOT created by this stack — it must already exist on the server.
+  llm-proxy:
+    external: true
+    name: ${LLM_PROXY_NETWORK:-litellm_default}
 
 volumes:
   ollama_data:

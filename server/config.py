@@ -49,6 +49,10 @@ class Config:
 
     stt_device: str = "cuda"
 
+    # Real API key required when routing vLLM traffic via a LiteLLM proxy;
+    # "local" is fine for a raw vLLM server (which ignores the key).
+    vllm_api_key: str = "local"
+
     # Kokoro-82M TTS (English primary engine)
     kokoro_voice: str = "af_heart"   # American female -- best general-purpose voice
     kokoro_speed: float = 1.0        # Speech rate multiplier
@@ -91,6 +95,10 @@ class Config:
         return self.grok_api_key
 
     @property
+    def VLLM_API_KEY(self):
+        return self.vllm_api_key
+
+    @property
     def CHROMADB_PATH(self):
         return self.chromadb_path
 
@@ -104,6 +112,7 @@ class Config:
             ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
             ollama_model_name=os.getenv("OLLAMA_MODEL_NAME", "qwen2.5:7b-instruct"),
             grok_api_key=os.getenv("GROK_API_KEY"),
+            vllm_api_key=os.getenv("VLLM_API_KEY", "local"),
 
             # STT Configuration
             stt_model=os.getenv("STT_MODEL", "large-v3"),
