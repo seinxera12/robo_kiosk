@@ -15,7 +15,10 @@ websockets==12.0
 # torch is intentionally NOT pinned here — it is pulled transitively by `kokoro`
 # with a version compatible with that package. Pinning it separately risks a
 # resolver conflict.
+# sentence-transformers 2.2.2 imports `cached_download` from huggingface_hub,
+# which was removed in hub >=0.26. Pin the hub to the last version that has it.
 sentence-transformers==2.2.2
+huggingface_hub==0.25.2
 openai==1.3.0
 
 # Vector database
