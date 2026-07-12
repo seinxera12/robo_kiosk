@@ -7,22 +7,14 @@ Whisper STT implementation using faster-whisper.
 import asyncio
 import logging
 import time
-from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Optional
 
 import numpy as np
 from faster_whisper import WhisperModel
 
+from server.stt.types import TranscriptionResult
+
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class TranscriptionResult:
-    """Result of STT transcription."""
-    text: str
-    language: Literal["en", "ja"]
-    confidence: float
-    duration_ms: int
 
 
 class WhisperSTT:
