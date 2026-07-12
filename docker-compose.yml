@@ -41,9 +41,6 @@ services:
       - OLLAMA_BASE_URL=http://ollama:11434
       - OLLAMA_MODEL_NAME=${OLLAMA_MODEL_NAME:-qwen2.5:7b-instruct}
 
-      # Grok API configuration (optional cloud fallback)
-      - GROK_API_KEY=${GROK_API_KEY:-}
-
       # STT configuration
       - STT_MODEL=${STT_MODEL:-large-v3}
       - STT_COMPUTE_TYPE=${STT_COMPUTE_TYPE:-int8}
