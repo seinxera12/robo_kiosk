@@ -113,12 +113,8 @@ class VoicePipeline:
         if stt is not None:
             self.stt = stt
         else:
-            from server.stt.whisper_stt import WhisperSTT
-            self.stt = WhisperSTT(
-                model_size=config.stt_model,
-                device=config.stt_device,
-                compute_type=config.stt_compute_type
-            )
+            from server.stt import create_stt
+            self.stt = create_stt(config)
 
         if llm_chain is not None:
             self.llm_chain = llm_chain

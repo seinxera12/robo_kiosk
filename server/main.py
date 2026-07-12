@@ -50,12 +50,8 @@ async def lifespan(app: FastAPI):
 
     # --- Pre-load all heavy components here ---
     logger.info("Pre-loading STT (Whisper)...")
-    from server.stt.whisper_stt import WhisperSTT
-    app_state["stt"] = WhisperSTT(
-        model_size=config.stt_model,
-        device=config.stt_device,
-        compute_type=config.stt_compute_type
-    )
+    from server.stt import create_stt
+    app_state["stt"] = create_stt(config)
 
     logger.info("Pre-loading LLM fallback chain...")
     from server.llm.fallback_chain import LLMFallbackChain
