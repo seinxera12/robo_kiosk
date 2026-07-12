@@ -6,8 +6,8 @@ A fully self-hosted, bilingual (English + Japanese) real-time streaming voice ch
 
 - **Bilingual Support**: English and Japanese with automatic language detection
 - **Real-time Streaming**: Sub-600ms Time-to-First-Audio (TTFA)
-- **Self-hosted**: Fully local deployment except optional Grok API fallback
-- **LLM Fallback Chain**: vLLM → Ollama → Grok API for high availability
+- **Self-hosted**: Fully local deployment
+- **LLM Fallback Chain**: vLLM → Ollama for high availability
 - **RAG Integration**: ChromaDB-backed building knowledge base
 - **Voice Activity Detection**: Automatic speech start/end detection
 - **Barge-in Support**: Interrupt system responses naturally
@@ -17,7 +17,7 @@ A fully self-hosted, bilingual (English + Japanese) real-time streaming voice ch
 
 ### Server (GPU)
 - **STT**: Whisper Large V3 Turbo via faster-whisper
-- **LLM**: Qwen2.5-3b-Instruct via vLLM/Ollama, Grok-3-fast fallback
+- **LLM**: Qwen2.5-3b-Instruct via vLLM (primary) / Ollama (fallback)
 - **TTS**: Kokoro-82M (English + Japanese secondary), KokoClone (Japanese primary)
 - **RAG**: ChromaDB with multilingual-e5-large embeddings
 - **Web Search**: Self-hosted SearXNG integration
@@ -73,7 +73,6 @@ cp .env.example .env
 Required environment variables:
 - `VLLM_BASE_URL`: vLLM server URL
 - `OLLAMA_BASE_URL`: Ollama server URL
-- `GROK_API_KEY`: xAI API key (optional)
 - `CHROMADB_PATH`: Path to ChromaDB storage
 - `SERVER_WS_URL`: WebSocket server URL (client)
 - `KIOSK_ID`: Unique kiosk identifier (client)
@@ -132,7 +131,6 @@ VLLM_BASE_URL = "http://localhost:8000/v1"
 VLLM_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct-AWQ"
 OLLAMA_BASE_URL = "http://localhost:11434/v1"
 OLLAMA_MODEL_NAME = "qwen2.5:7b"
-GROK_API_KEY = "xai-..."  # Optional
 CHROMADB_PATH = "./chroma_db"
 BUILDING_NAME = "Office Building"
 ```

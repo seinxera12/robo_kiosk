@@ -24,7 +24,6 @@ class Config:
     vllm_model_name: str
     ollama_base_url: str
     ollama_model_name: str
-    grok_api_key: Optional[str]
 
     # STT Configuration
     stt_model: str
@@ -91,10 +90,6 @@ class Config:
         return self.ollama_model_name
 
     @property
-    def GROK_API_KEY(self):
-        return self.grok_api_key
-
-    @property
     def VLLM_API_KEY(self):
         return self.vllm_api_key
 
@@ -111,7 +106,6 @@ class Config:
             vllm_model_name=os.getenv("VLLM_MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct-AWQ"),
             ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
             ollama_model_name=os.getenv("OLLAMA_MODEL_NAME", "qwen2.5:7b-instruct"),
-            grok_api_key=os.getenv("GROK_API_KEY"),
             vllm_api_key=os.getenv("VLLM_API_KEY", "local"),
 
             # STT Configuration
