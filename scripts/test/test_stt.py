@@ -24,6 +24,9 @@ import wave
 
 import httpx
 
+from _env import load_dotenv
+load_dotenv()  # populate os.environ from ./.env (safe: ignores comments/quotes)
+
 
 def synth_wav(seconds: float = 1.5, rate: int = 16000, freq: int = 220) -> bytes:
     """A short sine tone. Won't produce meaningful text, but exercises the full

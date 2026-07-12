@@ -41,8 +41,12 @@ ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; PASS=$((PASS+1)); }
 bad()  { printf '  \033[31m✗\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 head() { printf '\n\033[1m== %s ==\033[0m\n' "$1"; }
 
-# Load .env if present (server mode) so VLLM_API_KEY etc. are available.
-if [[ -f .env ]]; then set -a; . ./.env; set +a; fi
+# Load .env safely (handles inline comments / quotes) so VLLM_API_KEY etc. are
+# available. Never source .env directly — inline comments corrupt values.
+_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+source "$_here/_load_env.sh"
+load_env "${ENV_FILE:-.env}"
 
 COMPOSE_SERVICE="${COMPOSE_SERVICE:-voice-server}"
 

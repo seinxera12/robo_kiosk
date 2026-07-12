@@ -16,9 +16,10 @@ pip install httpx websockets       # jq recommended for check_deploy.sh
 ```
 
 ## On the SERVER
+All scripts auto-load `.env` from the repo root safely (inline comments, quotes,
+and odd values are handled — do NOT `source .env`, that corrupts values). Just run:
 ```bash
 cd ~/robo-deploy/voice-backend
-set -a; . ./.env; set +a            # load VLLM_* / STT_* into the shell
 
 ./scripts/test/check_deploy.sh      # layered pass/fail overview
 python scripts/test/test_llm.py     # LLM path (LiteLLM)

@@ -23,6 +23,9 @@ import time
 
 import httpx
 
+from _env import load_dotenv
+load_dotenv()  # populate os.environ from ./.env (safe: ignores comments/quotes)
+
 
 def main() -> int:
     ap = argparse.ArgumentParser()
