@@ -41,7 +41,12 @@ services:
       - OLLAMA_BASE_URL=http://ollama:11434
       - OLLAMA_MODEL_NAME=${OLLAMA_MODEL_NAME:-qwen2.5:7b-instruct}
 
-      # STT configuration
+      # STT configuration.
+      # STT_BACKEND=remote routes to the existing faster-whisper service on the
+      # shared network (no in-process model / VRAM). STT_MODEL/COMPUTE/DEVICE
+      # only apply to the local backend.
+      - STT_BACKEND=${STT_BACKEND:-local}
+      - STT_REMOTE_URL=${STT_REMOTE_URL:-http://stt-fastwhisper:8000/v1/audio/transcriptions}
       - STT_MODEL=${STT_MODEL:-large-v3}
       - STT_COMPUTE_TYPE=${STT_COMPUTE_TYPE:-int8}
       - STT_DEVICE=${STT_DEVICE:-cuda}
@@ -92,13 +97,14 @@ services:
         condition: service_started
     networks:
       - voice-network
-      - llm-proxy        # shared network where the existing LiteLLM proxy runs
+      - shared-infra     # existing network hosting LiteLLM proxy + faster-whisper
     logging: *default-logging
     restart: unless-stopped
 
-  # NOTE: no vLLM service here — LLM inference is served by an EXISTING endpoint
-  # (LiteLLM proxy) already running on the server. voice-server reaches it over
-  # the external `llm-proxy` network via VLLM_BASE_URL. Nothing to build/pull.
+  # NOTE: no vLLM or faster-whisper service here — LLM inference and (optionally)
+  # STT are served by EXISTING endpoints already running on the server.
+  # voice-server reaches them over the external `shared-infra` network via
+  # VLLM_BASE_URL / STT_REMOTE_URL. Nothing to build or pull for either.
 
   # Ollama - Secondary LLM inference engine (CPU/GPU fallback)
   ollama:
@@ -163,12 +169,13 @@ services:
 networks:
   voice-network:
     driver: bridge
-  # External network the existing LiteLLM proxy container is attached to.
-  # Set LLM_PROXY_NETWORK to its actual name (find via `docker network ls`).
-  # It is NOT created by this stack — it must already exist on the server.
-  llm-proxy:
+  # External network the existing LiteLLM proxy AND faster-whisper containers are
+  # attached to (qfind-net per the server compose). Set SHARED_INFRA_NETWORK to
+  # its actual name (find via `docker network ls`). NOT created by this stack —
+  # it must already exist on the server.
+  shared-infra:
     external: true
-    name: ${LLM_PROXY_NETWORK:-litellm_default}
+    name: ${SHARED_INFRA_NETWORK:-qfind-net}
 
 volumes:
   ollama_data:
