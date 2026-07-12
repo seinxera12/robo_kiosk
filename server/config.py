@@ -48,6 +48,13 @@ class Config:
 
     stt_device: str = "cuda"
 
+    # STT backend selection. "local" loads faster-whisper in-process (own VRAM);
+    # "remote" calls an existing faster-whisper HTTP service instead.
+    stt_backend: str = "local"
+    # Full URL of the remote transcription endpoint (OpenAI-compatible), e.g.
+    # http://stt-fastwhisper:8000/v1/audio/transcriptions
+    stt_remote_url: str = "http://stt-fastwhisper:8000/v1/audio/transcriptions"
+
     # Real API key required when routing vLLM traffic via a LiteLLM proxy;
     # "local" is fine for a raw vLLM server (which ignores the key).
     vllm_api_key: str = "local"
@@ -112,6 +119,11 @@ class Config:
             stt_model=os.getenv("STT_MODEL", "large-v3"),
             stt_compute_type=os.getenv("STT_COMPUTE_TYPE", "float16"),
             stt_device=os.getenv("STT_DEVICE", "cuda"),
+            stt_backend=os.getenv("STT_BACKEND", "local").lower(),
+            stt_remote_url=os.getenv(
+                "STT_REMOTE_URL",
+                "http://stt-fastwhisper:8000/v1/audio/transcriptions",
+            ),
 
             # RAG Configuration
             chromadb_path=os.getenv("CHROMADB_PATH", "/chroma"),
