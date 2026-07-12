@@ -1,11 +1,13 @@
-version: '3.8'
-
 # Production compose for the backend-only deployment. The dev source bind-mount
 # lives in docker-compose.override.yml (auto-loaded for local dev only).
 #
 # Host ports and the GPU index are env-driven so this file needs no edits to
 # coexist with other services on a shared server. Defaults preserve prior values.
 # Override in .env, e.g.  SERVER_PORT_HOST=9765  GPU_DEVICE_IDS=1
+#
+# Ingress: voice-server binds to loopback only by default (SERVER_BIND_HOST) —
+# it is meant to be exposed via Tailscale Funnel, not published on a public NIC.
+# Point a funnel at it:  tailscale funnel --bg --https=8443 http://127.0.0.1:8765
 
 x-logging: &default-logging
   driver: json-file
@@ -21,7 +23,9 @@ services:
       dockerfile: Dockerfile
     container_name: voice-server
     ports:
-      - "${SERVER_PORT_HOST:-8765}:8765"  # WebSocket + HTTP health endpoint
+      # Bind to loopback by default (funnel-only ingress). Set SERVER_BIND_HOST=0.0.0.0
+      # to publish on all interfaces instead.
+      - "${SERVER_BIND_HOST:-127.0.0.1}:${SERVER_PORT_HOST:-8765}:8765"  # WS + health
     volumes:
       - ./models:/models:ro  # Read-only model weights
       - ./building_kb:/building_kb:ro  # Read-only knowledge base
