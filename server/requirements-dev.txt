@@ -1,0 +1,6 @@
+# Development / test-only dependencies. Not needed at runtime and NOT installed
+# in the server image. Install for running the test suite locally:
+#
+#     pip install -r requirements.txt -r requirements-dev.txt
+pytest>=7.4
+hypothesis==6.112.2

@@ -10,7 +10,6 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Optional, Any
-import torch
 from starlette.websockets import WebSocketDisconnect
 
 import logging

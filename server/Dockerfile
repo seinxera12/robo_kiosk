@@ -30,6 +30,14 @@ COPY requirements.txt /app/requirements.txt
 RUN python -m pip install --upgrade pip \
     && python -m pip install -r /app/requirements.txt
 
+# OPTIONAL: local faster-whisper STT backend (STT_BACKEND=local).
+# The default deployment uses the remote STT service, so this is NOT installed.
+# To bake in the local backend, uncomment below AND add the PyAV build deps to
+# the apt-get block above (pkg-config libavformat-dev libavcodec-dev
+# libavdevice-dev libavutil-dev libavfilter-dev libswscale-dev libswresample-dev):
+# COPY requirements-local-stt.txt /app/requirements-local-stt.txt
+# RUN python -m pip install -r /app/requirements-local-stt.txt
+
 # Copy the backend source. The package is imported as `server.*`, so it must
 # live under /app/server to match `python -m server.main`.
 COPY . /app/server
