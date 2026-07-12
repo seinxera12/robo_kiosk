@@ -2,6 +2,9 @@
 .env
 .env.local
 
+# Dev-only compose override (NEVER deploy to server) — use the .example template
+docker-compose.override.yml
+
 # Python cache
 __pycache__/
 *.py[cod]
