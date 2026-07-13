@@ -44,3 +44,26 @@ describe("config default derivation", () => {
     restore();
   });
 });
+
+/**
+ * The packaged launcher serves the UI from http://127.0.0.1:<port>, so if the
+ * funnel URL is ever missing from a production build the location fallback
+ * silently aims the socket at the launcher's own file server. isLoopback is the
+ * tripwire for that; it must not misfire on the real funnel host.
+ */
+describe("loopback detection (packaged-build tripwire)", () => {
+  it("flags loopback WebSocket URLs", () => {
+    expect(_internal.isLoopback("ws://127.0.0.1:5180/ws")).toBe(true);
+    expect(_internal.isLoopback("ws://localhost:8765/ws")).toBe(true);
+    expect(_internal.isLoopback("wss://localhost/ws")).toBe(true);
+    expect(_internal.isLoopback("ws://[::1]:8765/ws")).toBe(true);
+  });
+
+  it("does not flag the funnel origin", () => {
+    expect(_internal.isLoopback("wss://ubuntu.tailcd8da4.ts.net:8443/ws")).toBe(false);
+  });
+
+  it("does not flag hosts that merely start with the loopback name", () => {
+    expect(_internal.isLoopback("wss://localhost.example.com:8443/ws")).toBe(false);
+  });
+});

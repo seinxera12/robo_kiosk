@@ -14,6 +14,7 @@ import { actions } from "../store/store";
 import { getSnapshot } from "../store/store";
 import { dispatchEvent, resetTurnTrace, type DispatchHooks } from "../store/eventDispatch";
 import { ConnectionManager } from "./ConnectionManager";
+import { log } from "./logger";
 import {
   encodeInterrupt,
   encodeTextInput,
@@ -78,7 +79,13 @@ export class SessionController {
   sendText(text: string): boolean {
     const trimmed = text.trim();
     if (trimmed.length === 0) return false;
-    if (!this.conn.isReady()) return false;
+    if (!this.conn.isReady()) {
+      // "I typed something and nothing happened" — this is the line that
+      // explains it.
+      log("warn", "ui", "text send rejected: session not ready");
+      return false;
+    }
+    log("info", "ui", "user sent text", { text: trimmed });
 
     // Barge-in: sending preempts any in-progress response (REF §3.3.2).
     this.audio.flush();
@@ -96,7 +103,18 @@ export class SessionController {
 
   /** FE-9: send one complete utterance as a single binary frame (REF §3.3.4). */
   sendUtterance(pcm: ArrayBuffer): boolean {
-    if (!this.conn.isReady()) return false;
+    if (!this.conn.isReady()) {
+      log("warn", "ui", "utterance rejected: session not ready", {
+        bytes: pcm.byteLength,
+      });
+      return false;
+    }
+    // 16 kHz mono PCM16 = 32000 bytes/sec. The duration is the useful signal:
+    // an utterance far shorter than expected means the VAD cut it off.
+    log("info", "ui", "user spoke", {
+      bytes: pcm.byteLength,
+      approxSeconds: +(pcm.byteLength / 32000).toFixed(2),
+    });
     // Voice barge-in: stop local playback; server auto-interrupts (REF §3.6).
     this.audio.flush();
     resetTurnTrace();
@@ -108,6 +126,7 @@ export class SessionController {
 
   /** FE-10: explicit barge-in. Flush local audio + tell the server. */
   interrupt(): boolean {
+    log("info", "ui", "user interrupted (barge-in)");
     this.audio.flush();
     return this.conn.send(encodeInterrupt());
   }

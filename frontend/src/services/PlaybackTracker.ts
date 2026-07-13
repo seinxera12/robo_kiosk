@@ -32,6 +32,11 @@ export class PlaybackTracker {
 
   /** A binary audio frame arrived (turn is producing audio). */
   onAudioFrame(): void {
+    // Trace the first frame of the turn. eventDispatch has a `case "audio"`
+    // that looks like it does this, but it is dead code: ConnectionManager
+    // routes binary frames straight to the audio sink and returns before
+    // dispatchEvent ever sees them. This is the live path, so trace here.
+    if (!this.sawAudio) appendTrace("active", "tts: receiving audio...");
     this.sawAudio = true;
     this.drained = false;
     this.lastFrameAt = Date.now();

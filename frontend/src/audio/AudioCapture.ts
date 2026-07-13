@@ -9,8 +9,7 @@
  * Permission denial surfaces via the start() rejection (REF §5.1 edge case).
  */
 import { buildUtterancePcm } from "./resample";
-
-const captureWorkletUrl = new URL("./capture-worklet.ts", import.meta.url).href;
+import { CAPTURE_WORKLET_URL } from "./workletUrl";
 
 export type FrameListener = (frame: Float32Array, sampleRate: number) => void;
 
@@ -47,7 +46,7 @@ export class AudioCapture {
       },
     });
     const ctx = new AudioContext();
-    await ctx.audioWorklet.addModule(captureWorkletUrl);
+    await ctx.audioWorklet.addModule(CAPTURE_WORKLET_URL);
     this._sampleRate = ctx.sampleRate;
 
     const source = ctx.createMediaStreamSource(this.stream);

@@ -17,10 +17,10 @@
  */
 import { PLAYBACK_SAMPLE_RATE, frameToInt16, int16ToFloat32 } from "./pcm";
 import type { AudioSink } from "../services/SessionController";
-
-// Vite bundles the worklet as a separate module; import.meta.url resolves it to
-// a real asset URL usable by audioWorklet.addModule().
-const workletUrl = new URL("./playback-worklet.ts", import.meta.url).href;
+import { PLAYBACK_WORKLET_URL } from "./workletUrl";
+import { log } from "../services/logger";
+import { appendTrace } from "../store/systemTraceStore";
+import { actions } from "../store/store";
 
 export class AudioPlayer implements AudioSink {
   private ctx: AudioContext | null = null;
@@ -38,7 +38,20 @@ export class AudioPlayer implements AudioSink {
     if (this.ready) return this.ready;
     this.ready = (async () => {
       const ctx = new AudioContext({ sampleRate: PLAYBACK_SAMPLE_RATE });
-      await ctx.audioWorklet.addModule(workletUrl);
+      try {
+        await ctx.audioWorklet.addModule(PLAYBACK_WORKLET_URL);
+      } catch (err) {
+        // Previously this rejection was swallowed by the caller's void/catch,
+        // so a broken worklet meant audio frames arrived, went nowhere, and
+        // NOTHING was reported — silence with no error. Make it loud.
+        log("error", "audio", "playback worklet failed to load", {
+          url: PLAYBACK_WORKLET_URL,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        appendTrace("error", "tts: audio playback unavailable");
+        actions.setSoftError("Audio playback is unavailable.");
+        throw err;
+      }
       const node = new AudioWorkletNode(ctx, "pcm-ring", {
         numberOfInputs: 0,
         numberOfOutputs: 1,
