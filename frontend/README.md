@@ -70,6 +70,40 @@ Must be `wss://` — the funnel is TLS-only. If unset, config falls back to
 `window.location`, which is correct only when the server itself serves the page;
 in a packaged build that would point at the launcher, hence the build guard.
 
+## Logs
+
+The packaged kiosk writes **`kiosk.log` next to the exe** (the path is printed on
+startup). It is JSON Lines — one record per line:
+
+```
+{"ts":1783928810820,"level":"info","channel":"ws","msg":"socket open"}
+{"ts":1783928810960,"level":"debug","channel":"ws","msg":"recv session_ack"}
+{"ts":1783928812280,"level":"debug","channel":"ws","msg":"recv audio","data":{"bytes":65536}}
+```
+
+The browser cannot write files, so the UI POSTs batched records to the launcher
+(`POST /__log`), which appends them. Channels: `app` (boot/config/crashes), `ws`
+(**every frame in and out**), `health`, `audio`, `ui`, `launcher`.
+
+Filter with `jq`, e.g. only the wire traffic:
+
+```bash
+jq -c 'select(.channel=="ws")' kiosk.log
+jq -c 'select(.level=="error")' kiosk.log
+```
+
+Two things to know:
+
+- **Audio is logged by byte count, never by content.** A single TTS reply is
+  ~70 KB; writing the bytes out would produce megabytes per turn and tell you
+  nothing readable.
+- **In `npm run dev` there is no launcher**, so the POSTs fail and logging goes
+  quiet after the first attempt. That is deliberate — in dev, DevTools *is* the
+  log. `kiosk.log` only exists for the packaged exe.
+
+Rotates at 5 MB (keeping one `kiosk.log.1`); appends across restarts, so a crash
+does not destroy the evidence from the run before it.
+
 ## Readiness gate
 
 `/health` returns `{"status":"healthy"}` **while the models are still loading**,

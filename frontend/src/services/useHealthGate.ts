@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { config } from "../config";
+import { log } from "./logger";
 import {
   componentsReady,
   fetchHealth,
@@ -53,6 +54,9 @@ export function useHealthGate(): HealthGate {
   useEffect(() => {
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    // Log phase CHANGES only. The poll runs every 2 s while warming, and a cold
+    // server can warm for minutes — logging each poll would bury everything else.
+    let lastPhase: HealthPhase | null = null;
 
     const poll = async () => {
       const result = await fetchHealth(config.healthUrl);
@@ -67,16 +71,33 @@ export function useHealthGate(): HealthGate {
           error: result.error,
         });
         nextPhase = "unreachable";
+        if (nextPhase !== lastPhase) {
+          log("error", "health", "health endpoint unreachable", {
+            url: config.healthUrl,
+            error: result.error,
+          });
+        }
       } else {
         const ready = componentsReady(result.body);
         nextPhase = ready ? "ready" : "warming";
+        const pending = ready ? [] : pendingComponents(result.body);
         setGate({
           phase: nextPhase,
-          pending: ready ? [] : pendingComponents(result.body),
+          pending,
           body: result.body,
           error: null,
         });
+        if (nextPhase !== lastPhase) {
+          log("info", "health", `pipeline ${nextPhase}`, {
+            status: result.body.status,
+            components: result.body.components,
+            tts: result.body.tts,
+            ...(ready ? {} : { pending }),
+          });
+        }
       }
+
+      lastPhase = nextPhase;
 
       // Re-arm. A plain setInterval would stack requests if a poll outlives its
       // period (likely on a cold, still-loading server), so chain instead.

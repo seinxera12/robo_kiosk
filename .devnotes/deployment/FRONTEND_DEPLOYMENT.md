@@ -50,6 +50,48 @@ config off `import.meta.env` onto a runtime-injected global.
 loopback — the signature of a missing/ignored `.env.production`, which would
 otherwise produce an exe that silently never connects.
 
+## Logs
+
+`kiosk.log`, written next to the exe (path printed on startup). JSON Lines, one
+record per line, appended across restarts, rotated at 5 MB (one `kiosk.log.1`).
+
+The browser cannot write files, so the UI batches records and POSTs them to the
+launcher at `POST /__log`; the launcher appends them. Channels:
+
+| Channel | What lands there |
+|---|---|
+| `launcher` | Process start/stop/crash — written by the exe itself |
+| `app` | Boot (including the **resolved server URL**), uncaught errors, session end |
+| `ws` | **Every frame in and out**: sends, receives, close codes, reconnect backoff |
+| `health` | Readiness phase changes (`warming` → `ready`, unreachable) |
+| `audio` | Mic capture and VAD failures |
+| `ui` | User actions — text sent, spoke, barge-in, and *rejected* actions |
+
+Useful when triaging:
+
+```bash
+jq -c 'select(.channel=="ws")'    kiosk.log   # the wire
+jq -c 'select(.level=="error")'   kiosk.log   # what broke
+jq -c 'select(.msg|test("recv"))' kiosk.log   # what the server sent
+```
+
+Deliberate limits:
+
+- **Audio is recorded as a byte count, never as bytes.** One TTS reply is ~70 KB;
+  logging the payload would produce megabytes per turn and be unreadable.
+- **Logging can never break the kiosk.** Every failure path in the logger and the
+  ingest handler is swallowed. Losing a log line beats taking down an unattended
+  kiosk.
+- **Errors flush immediately**, rather than waiting for the 1 s batch — they are
+  the thing most likely to be followed by a crash that would lose the buffer.
+- **Dev builds have no launcher**, so posts fail and logging goes quiet after the
+  first attempt. In dev, DevTools is the log; `kiosk.log` is a packaged-exe
+  feature.
+
+A hard kill (`Stop-Process -Force`, power loss) writes no shutdown line — nothing
+can intercept that. Everything logged before it is already on disk, because the
+stream appends rather than buffering to the end.
+
 ## Design constraints (do not "simplify" these away)
 
 **Serve over `http://127.0.0.1`, never `file://`.** Loopback is a *secure

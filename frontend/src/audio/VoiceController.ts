@@ -12,6 +12,7 @@ import { AudioCapture } from "./AudioCapture";
 import { VadSegmenter } from "./VadSegmenter";
 import { actions } from "../store/store";
 import { appendTrace } from "../store/systemTraceStore";
+import { log } from "../services/logger";
 
 export interface VoiceControllerOptions {
   /** Send one complete utterance (SessionController.sendUtterance). */
@@ -63,6 +64,14 @@ export class VoiceController {
       this.started = true;
       return true;
     } catch (err) {
+      // Usually a denied permission prompt, but also fires on a non-secure
+      // context (i.e. the page was somehow opened over file://) — the log is
+      // where you tell those two apart.
+      log("error", "audio", "microphone capture failed", {
+        error: errMessage(err),
+        secureContext: typeof window !== "undefined" ? window.isSecureContext : undefined,
+        origin: typeof location !== "undefined" ? location.origin : undefined,
+      });
       actions.setSoftError("Microphone access is required for voice.");
       appendTrace("error", `mic: access denied (${errMessage(err)})`);
       return false;
@@ -91,6 +100,7 @@ export class VoiceController {
       actions.setRecording("alwaysListen");
     } catch (err) {
       // VAD unavailable -> fall back to PTT-only (REF §5.2 edge case).
+      log("error", "audio", "VAD failed to start", { error: errMessage(err) });
       actions.setRecording("idle");
       actions.setSoftError("Auto-listen unavailable; use push-to-talk.");
       appendTrace("error", `vad: failed to start (${errMessage(err)})`);

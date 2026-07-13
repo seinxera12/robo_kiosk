@@ -33,7 +33,8 @@
 
 const { createServer } = require("node:http");
 const { spawn } = require("node:child_process");
-const { extname } = require("node:path");
+const { createWriteStream, existsSync, renameSync, statSync } = require("node:fs");
+const { dirname, extname, join } = require("node:path");
 const sea = require("node:sea");
 
 /** Loopback only. Never bind 0.0.0.0 — this must not be reachable off-box. */
@@ -42,6 +43,88 @@ const HOST = "127.0.0.1";
 /** First choice; we walk upward if the port is taken (see listen()). */
 const BASE_PORT = 5180;
 const MAX_PORT_ATTEMPTS = 20;
+
+// --- logging ---------------------------------------------------------------
+//
+// The browser cannot write files, so the UI POSTs its records to /__log and we
+// append them here as JSON lines. The log sits next to the exe, which is where
+// someone debugging an unattended kiosk will actually look for it.
+//
+// process.execPath is the exe itself under SEA (not a node binary elsewhere on
+// disk), so its directory is the right home for the log.
+
+const LOG_PATH = join(dirname(process.execPath), "kiosk.log");
+/** Rotate at 5 MB so an always-on kiosk cannot fill the disk. One old file. */
+const LOG_MAX_BYTES = 5 * 1024 * 1024;
+/** Refuse absurd payloads rather than buffer them. */
+const LOG_MAX_BODY = 1 * 1024 * 1024;
+
+function rotateIfNeeded() {
+  try {
+    if (existsSync(LOG_PATH) && statSync(LOG_PATH).size > LOG_MAX_BYTES) {
+      renameSync(LOG_PATH, `${LOG_PATH}.1`);
+    }
+  } catch {
+    /* rotation is best-effort; never block logging on it */
+  }
+}
+
+rotateIfNeeded();
+
+// Append mode: a restart adds to the existing log rather than destroying the
+// evidence from the run that just crashed.
+let logStream = createWriteStream(LOG_PATH, { flags: "a" });
+logStream.on("error", (err) => {
+  console.error(`[kiosk] cannot write ${LOG_PATH}: ${err.message}`);
+});
+
+function writeLogLine(obj) {
+  try {
+    logStream.write(JSON.stringify(obj) + "\n");
+  } catch {
+    /* never let logging take down the kiosk */
+  }
+}
+
+/** Log our own lifecycle too, so the file explains itself without the UI. */
+function logLauncher(level, msg, data) {
+  writeLogLine({
+    ts: Date.now(),
+    level,
+    channel: "launcher",
+    msg,
+    ...(data ? { data } : {}),
+  });
+}
+
+function handleLogPost(req, res) {
+  let size = 0;
+  const chunks = [];
+
+  req.on("data", (c) => {
+    size += c.length;
+    if (size > LOG_MAX_BODY) {
+      res.writeHead(413).end();
+      req.destroy();
+      return;
+    }
+    chunks.push(c);
+  });
+
+  req.on("end", () => {
+    if (res.writableEnded) return;
+    try {
+      const { records } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      if (Array.isArray(records)) {
+        for (const r of records) writeLogLine(r);
+      }
+    } catch {
+      /* a malformed batch is dropped, not fatal */
+    }
+    // 204: the UI does not read the response and must not wait on it.
+    res.writeHead(204).end();
+  });
+}
 
 /**
  * Asset manifest, generated at build time (build.mjs) and embedded alongside
@@ -75,6 +158,18 @@ const server = createServer((req, res) => {
   // Only ever serve embedded assets. Nothing is read from disk, so there is no
   // path-traversal surface here.
   let path = (req.url || "/").split("?")[0].split("#")[0];
+
+  // Log ingest from the UI. Checked before the SPA fallback below, which would
+  // otherwise happily answer this with index.html.
+  if (path === "/__log") {
+    if (req.method !== "POST") {
+      res.writeHead(405).end();
+      return;
+    }
+    handleLogPost(req, res);
+    return;
+  }
+
   if (path === "/") path = "/index.html";
 
   const entry = manifest[path];
@@ -141,9 +236,29 @@ function listen(port, attempt) {
     const url = `http://${HOST}:${port}/`;
     console.log("Voice Kiosk");
     console.log(`  serving on ${url}`);
+    console.log(`  log file:   ${LOG_PATH}`);
     console.log("  opening your browser...");
     console.log("\nClose this window to shut down the kiosk.");
+    logLauncher("info", "launcher started", { url, pid: process.pid });
     if (!process.env.KIOSK_NO_BROWSER) openBrowser(url);
+  });
+}
+
+// Record why we went away, so an unattended kiosk that vanished overnight
+// leaves behind the reason.
+process.on("uncaughtException", (err) => {
+  logLauncher("error", "launcher crashed", {
+    message: err.message,
+    stack: err.stack,
+  });
+  logStream.end();
+  process.exit(1);
+});
+
+for (const sig of ["SIGINT", "SIGTERM"]) {
+  process.on(sig, () => {
+    logLauncher("info", "launcher stopped", { signal: sig });
+    logStream.end(() => process.exit(0));
   });
 }
 

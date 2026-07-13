@@ -15,11 +15,34 @@
  */
 import { actions } from "../store/store";
 import { appendTrace } from "../store/systemTraceStore";
+import { log } from "./logger";
 import {
   decodeInbound,
   encodeSessionStart,
   type InboundEvent,
 } from "./messages";
+
+/**
+ * Summarise an inbound event for the log.
+ *
+ * Audio is recorded as a byte count, never as bytes: TTS replies run to tens of
+ * KB per frame and would bloat the log into uselessness. Token text IS kept —
+ * it is small and it is the thing you actually need when the reply looks wrong.
+ */
+function describeInbound(ev: InboundEvent): Record<string, unknown> {
+  switch (ev.kind) {
+    case "audio":
+      return { bytes: ev.data.byteLength };
+    case "llm_text_chunk":
+      return { text: ev.text, final: ev.final };
+    case "transcript":
+      return { text: ev.text, lang: ev.lang, final: ev.final };
+    case "status":
+      return { state: ev.state };
+    default:
+      return {};
+  }
+}
 
 export interface ConnectionManagerOptions {
   url: string;
@@ -64,9 +87,14 @@ export class ConnectionManager {
 
   private openSocket(): void {
     let ws: WebSocket;
+    log("info", "ws", "connecting", { url: this.opts.url });
     try {
       ws = new WebSocket(this.opts.url);
-    } catch {
+    } catch (e) {
+      log("error", "ws", "socket constructor threw", {
+        url: this.opts.url,
+        error: e instanceof Error ? e.message : String(e),
+      });
       this.scheduleReconnect();
       return;
     }
@@ -76,12 +104,23 @@ export class ConnectionManager {
     ws.onopen = () => {
       // Reconnect => fresh server session: re-send session_start (REF §3.8, §7).
       appendTrace("done", "socket connected");
+      log("info", "ws", "socket open");
       actions.setConnection("connected");
       this.send(encodeSessionStart(this.opts.kioskId, this.opts.kioskLocation), true);
     };
 
     ws.onmessage = (evt: MessageEvent) => {
       const decoded = decodeInbound(evt.data);
+
+      // Every inbound frame, in order. This is the "what is the server actually
+      // sending me" record.
+      log(
+        decoded.kind === "malformed" ? "warn" : "debug",
+        "ws",
+        `recv ${decoded.kind}`,
+        describeInbound(decoded)
+      );
+
       if (decoded.kind === "audio") {
         this.opts.onAudio(decoded.data);
         return;
@@ -96,18 +135,32 @@ export class ConnectionManager {
     };
 
     ws.onerror = () => {
-      // onerror is always followed by onclose; handle reconnect there.
+      // onerror is always followed by onclose; handle reconnect there. The
+      // browser deliberately withholds the reason (it would leak cross-origin
+      // information), so there is nothing to report but the fact of it.
+      log("error", "ws", "socket error", { url: this.opts.url });
     };
 
-    ws.onclose = () => {
+    ws.onclose = (evt?: CloseEvent) => {
       this.ws = null;
       this.acked = false;
+      // code/reason are the only diagnosis you get for a server-side drop:
+      // 1006 = abnormal (no close frame — network/funnel), 1011 = server error.
+      // Guarded: a real browser always passes a CloseEvent, but don't make the
+      // close path itself throw if something hands us a bare call.
+      const detail = {
+        code: evt?.code,
+        reason: evt?.reason || undefined,
+        clean: evt?.wasClean,
+      };
       if (this.closedByUs) {
         appendTrace("done", "socket closed");
+        log("info", "ws", "socket closed by client", detail);
         actions.setConnection("disconnected");
         return;
       }
       appendTrace("error", "socket dropped, reconnecting...");
+      log("warn", "ws", "socket dropped, will reconnect", detail);
       this.scheduleReconnect();
     };
   }
@@ -116,6 +169,7 @@ export class ConnectionManager {
     actions.setConnection("reconnecting");
     if (this.reconnectTimer) return;
     const delay = this.backoffMs;
+    log("info", "ws", "reconnect scheduled", { delayMs: delay });
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.openSocket();
@@ -134,13 +188,25 @@ export class ConnectionManager {
    * session_start uses allowUnacked=true (REF §3.2: don't send app msgs early).
    */
   send(text: string, allowUnacked = false): boolean {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
-    if (!allowUnacked && !this.acked) return false;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      log("warn", "ws", "send dropped: socket not open", { payload: text });
+      return false;
+    }
+    if (!allowUnacked && !this.acked) {
+      // Silent in the UI, so make it loud in the log: a message sent before
+      // session_ack is discarded, and "nothing happened" is the only symptom.
+      log("warn", "ws", "send dropped: not acked yet", { payload: text });
+      return false;
+    }
     try {
       this.ws.send(text);
+      log("debug", "ws", "sent json", { payload: text });
       return true;
-    } catch {
+    } catch (e) {
       // Send failure -> drop + reconnect (REF §3.8).
+      log("error", "ws", "send failed", {
+        error: e instanceof Error ? e.message : String(e),
+      });
       this.forceReconnect();
       return false;
     }
@@ -148,11 +214,24 @@ export class ConnectionManager {
 
   /** Send a binary frame (one whole utterance — REF §3.3.4). */
   sendBinary(data: ArrayBuffer): boolean {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.acked) return false;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.acked) {
+      log("warn", "ws", "utterance dropped: socket not ready", {
+        bytes: data.byteLength,
+        acked: this.acked,
+      });
+      return false;
+    }
     try {
       this.ws.send(data);
+      // Byte count only — never the audio itself (see logger.ts).
+      log("debug", "ws", "sent utterance (pcm16 16kHz)", {
+        bytes: data.byteLength,
+      });
       return true;
-    } catch {
+    } catch (e) {
+      log("error", "ws", "utterance send failed", {
+        error: e instanceof Error ? e.message : String(e),
+      });
       this.forceReconnect();
       return false;
     }

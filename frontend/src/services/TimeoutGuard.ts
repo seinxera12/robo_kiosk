@@ -10,6 +10,7 @@
  * §9.4/§10 give no hard number — OQ-6). Default 20 s, configurable.
  */
 import { actions, getSnapshot } from "../store/store";
+import { log } from "./logger";
 
 export class TimeoutGuard {
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -30,6 +31,12 @@ export class TimeoutGuard {
 
   private fire(): void {
     this.timer = null;
+    // The UI only says "please try again", which throws away the evidence. This
+    // is a server-side hang: the request went out and nothing ever came back.
+    log("error", "ws", "turn timed out — no inbound activity after send", {
+      timeoutMs: this.timeoutMs,
+      responseStarted: getSnapshot().responseStarted,
+    });
     // Close any dangling assistant bubble so the UI isn't stuck mid-stream.
     if (getSnapshot().responseStarted) actions.finishAssistantResponse();
     actions.setStatus("listening");

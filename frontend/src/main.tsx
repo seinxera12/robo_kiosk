@@ -2,9 +2,25 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { ConsoleRoot } from "./components/console/ConsoleRoot";
+import { config } from "./config";
+import { log, startLogging } from "./services/logger";
 import "./styles.css";
 import "./styles/tokens.css";
 import "./styles/console.css";
+
+// Before anything else, so a crash during boot is still captured.
+startLogging();
+
+// The endpoints actually in use. First thing to check when the kiosk cannot
+// reach the server — the exe bakes these in at build time, so the log is the
+// only way to see which server a given exe was built against.
+log("info", "app", "kiosk starting", {
+  serverWsUrl: config.serverWsUrl,
+  healthUrl: config.healthUrl,
+  kioskId: config.kioskId,
+  kioskLocation: config.kioskLocation,
+  userAgent: navigator.userAgent,
+});
 
 const rootEl = document.getElementById("root");
 if (!rootEl) {
