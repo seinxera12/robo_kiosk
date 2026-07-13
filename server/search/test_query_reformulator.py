@@ -13,9 +13,21 @@ from server.search.query_reformulator import (
     extract_search_query,
     _is_japanese,
     _build_system_prompt,
-    OLLAMA_BASE_URL,
-    REFORMULATOR_MODEL,
 )
+
+
+class FakeConfig:
+    """
+    Minimal stand-in for server.config.Config.
+
+    Mirrors the deployed shape: VLLM_BASE_URL already carries the "/v1" suffix
+    (the LiteLLM proxy), which is exactly the condition under which a naive
+    f"{base}/v1/chat/completions" would produce a broken ".../v1/v1/..." URL.
+    """
+
+    VLLM_BASE_URL = "http://litellm:4000/v1"
+    VLLM_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct-AWQ"
+    VLLM_API_KEY = "test-key"
 
 
 class TestIsJapanese:
@@ -268,14 +280,42 @@ class TestExtractSearchQuery:
             assert last_msg["role"] == "user"
             assert last_msg["content"] == user_message
     
-    def test_ollama_base_url_default(self):
-        """Test that OLLAMA_BASE_URL defaults to http://localhost:11434."""
-        assert OLLAMA_BASE_URL == "http://localhost:11434"
-    
-    def test_reformulator_model_default(self):
-        """Test that REFORMULATOR_MODEL defaults to qwen2.5:3b."""
-        assert REFORMULATOR_MODEL == "qwen2.5:3b"
-    
+    def test_uses_the_main_chat_llm_endpoint_and_model(self):
+        """
+        The reformulator must run on the SAME endpoint/model as the chat LLM.
+
+        Guards the two ways the switch away from Ollama can silently break:
+          * VLLM_BASE_URL already ends in "/v1", so appending "/v1/chat/..."
+            again yields ".../v1/v1/chat/completions" and 404s.
+          * The LiteLLM proxy enforces auth; a request with no Authorization
+            header is rejected. The old Ollama endpoint needed no key.
+        Both failures fall back to the raw query, so search silently degrades
+        rather than erroring — which is exactly why they need a test.
+        """
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "test query"}}]
+        }
+        mock_response.raise_for_status = Mock()
+
+        with patch("httpx.Client") as mock_client:
+            mock_post = mock_client.return_value.__enter__.return_value.post
+            mock_post.return_value = mock_response
+
+            extract_search_query("test", config=FakeConfig())
+
+            call_args = mock_post.call_args
+
+            # Exactly one /v1 — not the doubled one a naive join would produce.
+            assert call_args[0][0] == "http://litellm:4000/v1/chat/completions"
+            assert "/v1/v1/" not in call_args[0][0]
+
+            # Same model the chat backend uses.
+            assert call_args[1]["json"]["model"] == FakeConfig.VLLM_MODEL_NAME
+
+            # Auth header, or the proxy rejects it.
+            assert call_args[1]["headers"]["Authorization"] == "Bearer test-key"
+
     def test_request_body_structure(self):
         """Test that request body contains correct structure and parameters."""
         mock_response = Mock()
@@ -283,20 +323,20 @@ class TestExtractSearchQuery:
             "choices": [{"message": {"content": "test query"}}]
         }
         mock_response.raise_for_status = Mock()
-        
+
         with patch("httpx.Client") as mock_client:
             mock_post = mock_client.return_value.__enter__.return_value.post
             mock_post.return_value = mock_response
-            
-            extract_search_query("test")
-            
+
+            extract_search_query("test", config=FakeConfig())
+
             # Check URL
             call_args = mock_post.call_args
-            assert call_args[0][0] == f"{OLLAMA_BASE_URL}/v1/chat/completions"
-            
+            assert call_args[0][0] == "http://litellm:4000/v1/chat/completions"
+
             # Check request body (OpenAI-compatible format)
             request_body = call_args[1]["json"]
-            assert request_body["model"] == REFORMULATOR_MODEL
+            assert request_body["model"] == FakeConfig.VLLM_MODEL_NAME
             assert request_body["stream"] is False
             assert request_body["temperature"] == 0
             assert request_body["max_tokens"] == 32

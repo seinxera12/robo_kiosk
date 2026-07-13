@@ -465,13 +465,25 @@ class KokoroJapaneseTTS:
         """
         Return True if the Kokoro Japanese pipeline is (or can be) loaded.
 
-        Does NOT trigger a download — only checks whether the model is
-        already in memory or the kokoro package is importable.
+        Does NOT trigger a download — only checks whether the model is already in
+        memory, or the packages needed to build the pipeline are importable.
+
+        Checking `kokoro` alone is NOT sufficient and previously made this lie:
+        the Japanese pipeline is KPipeline(lang_code='j'), which needs the
+        Japanese G2P from misaki[ja]. With only misaki[en] installed, `kokoro`
+        imports fine, so health reported kokoro_ja="ready" while every single
+        Japanese synthesis failed with "pipeline not available". A load error we
+        already hit is likewise conclusive — don't claim ready after it.
         """
         if self._loaded:
             return True
+        if self._load_error is not None:
+            return False
         try:
-            import kokoro  # noqa: F401
+            import kokoro  # noqa: F401 — the engine itself
+            # The Japanese G2P backend. Absent => KPipeline(lang_code='j') cannot
+            # be constructed, which is exactly the failure this guards against.
+            import misaki.ja  # noqa: F401
             return True
         except ImportError:
             return False
