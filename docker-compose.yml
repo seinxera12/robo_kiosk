@@ -31,7 +31,19 @@ services:
       - ./building_kb:/building_kb:ro  # Read-only knowledge base
       - ./chroma_data:/chroma  # Persistent ChromaDB storage
       - ./voices_reference:/voices_reference:ro  # KokoClone reference audio
+      # HuggingFace cache. WITHOUT THIS, models land in ~/.cache inside the
+      # container's writable layer and are destroyed on every recreate, so each
+      # `docker compose up` re-downloads them: multilingual-e5-large (~2.2 GB,
+      # the RAG embedder) plus Kokoro-82M. That is the several-minute stall
+      # before the app starts. With the volume, it is a one-time cost.
+      - hf_cache:/hf_cache
     environment:
+      # Point every HuggingFace library at the persistent cache above.
+      # HF_HOME covers huggingface_hub (Kokoro's KPipeline downloads via it);
+      # SENTENCE_TRANSFORMERS_HOME covers sentence-transformers (the embedder).
+      # Both must be set — they do not read each other's variable.
+      - HF_HOME=/hf_cache
+      - SENTENCE_TRANSFORMERS_HOME=/hf_cache/sentence-transformers
       # vLLM configuration (primary LLM backend).
       # Routes to an EXISTING inference endpoint (LiteLLM proxy) already running
       # on the server — no vLLM container/model is deployed by this stack.
@@ -185,4 +197,9 @@ networks:
 
 volumes:
   ollama_data:
+    driver: local
+  # Persistent HuggingFace model cache for voice-server (RAG embedder + Kokoro).
+  # Survives container recreation, so models download once rather than on every
+  # `docker compose up`. Safe to delete to force a re-download.
+  hf_cache:
     driver: local
