@@ -253,6 +253,33 @@
   box-shadow: 0 0 10px rgba(77, 255, 159, 0.4);
 }
 
+/* Server up but still loading its models: the mic is unavailable, yet this is
+   a transient "busy" state, not a fault. Read it as pending, not broken —
+   distinct from the flat grey of a plain disabled button. */
+.composer-mic.warming {
+  color: var(--accent-amber);
+  border-color: var(--accent-amber);
+  opacity: 1;
+  animation: mic-warming-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes mic-warming-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-mic.warming {
+    animation: none;
+    opacity: 0.8;
+  }
+}
+
 .composer-mute {
   background: transparent;
   border: 1px solid var(--grid-line-color);

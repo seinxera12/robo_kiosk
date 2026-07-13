@@ -3,3 +3,9 @@ dist/
 .env
 .env.local
 *.log
+
+# Packaged launcher output (kiosk.exe + build scratch). Build artifact — the
+# exe is ~82 MB because SEA embeds the Node runtime. Ship it as a release
+# asset, never in git. .env.production IS committed: it is the build input that
+# bakes in the funnel URL.
+release/

@@ -1,15 +1,26 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../../store/useStore";
 import type { ConnectionState } from "../../store/types";
+import type { HealthGate } from "../../services/useHealthGate";
 
 /**
  * Top bar (spec §3.1). Connection pill mirrors the real WebSocket lifecycle
  * (REF/store ConnectionState) — there are 5 real states, not the spec's 4, so
  * `connected` (socket open, awaiting session_ack) is folded into CONNECTING
  * rather than invented as a distinct pill.
+ *
+ * WARMING is a sixth state that is NOT a socket state: the connection is fully
+ * established and acked, but the server's models are still loading. Showing LIVE
+ * there would promise a working mic that would in fact drop the utterance, so
+ * the health gate overrides the socket pill while the pipeline comes up.
  */
 
-type PillState = "LIVE" | "CONNECTING" | "RECONNECTING" | "OFFLINE";
+type PillState =
+  | "LIVE"
+  | "WARMING"
+  | "CONNECTING"
+  | "RECONNECTING"
+  | "OFFLINE";
 
 const PILL_MAP: Record<ConnectionState, PillState> = {
   disconnected: "OFFLINE",
@@ -21,6 +32,7 @@ const PILL_MAP: Record<ConnectionState, PillState> = {
 
 const PILL_DOT_CLASS: Record<PillState, string> = {
   LIVE: "on",
+  WARMING: "pending",
   CONNECTING: "pending",
   RECONNECTING: "pending",
   OFFLINE: "error",
@@ -39,9 +51,13 @@ function useClock(): string {
   return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 }
 
-export function TopBar() {
+export function TopBar({ health }: { health: HealthGate }) {
   const connection = useStore((s) => s.connection);
-  const pill = PILL_MAP[connection];
+  const socketPill = PILL_MAP[connection];
+  // Only downgrade LIVE->WARMING. While the socket is still connecting or
+  // reconnecting, the socket state is the more informative one to show.
+  const pill: PillState =
+    socketPill === "LIVE" && health.phase !== "ready" ? "WARMING" : socketPill;
   const clock = useClock();
   // Local UI preference only — no backend concept of "mode"; does not gate
   // which panels receive real data (all panels always reflect real events).
@@ -54,7 +70,14 @@ export function TopBar() {
         <span className="topbar-cursor" aria-hidden="true" />
       </span>
 
-      <span className="topbar-conn">
+      <span
+        className="topbar-conn"
+        title={
+          pill === "WARMING" && health.pending.length > 0
+            ? `Server still loading: ${health.pending.join(", ")}`
+            : undefined
+        }
+      >
         <span className={`status-dot ${PILL_DOT_CLASS[pill]}`} />
         <span>{pill}</span>
       </span>

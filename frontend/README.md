@@ -1,16 +1,20 @@
 # Voice Kiosk — Browser Frontend
 
-Browser client replacing the PyQt6 desktop kiosk. Speaks the existing
-single-WebSocket protocol (`ws://host:8765/ws`) with **zero backend changes**.
-See `../.devnotes/ui-migration/FRONTEND_MIGRATION_PLAN.md` for the full plan and
-`../.devnotes/ui-migration/implementation-status.md` for task status.
+Browser client replacing the PyQt6 desktop kiosk. Speaks the single-WebSocket
+protocol with **zero backend changes**, and ships as a standalone `kiosk.exe`
+that serves the UI locally and opens it in the user's browser.
 
-## Setup
+The deployed voice-server is reachable **only** through a Tailscale Funnel — one
+TLS origin fronts the whole service, so `/ws` and `/health` share a host and
+port. See `../.devnotes/deployment/FRONTEND_INTEGRATION.md` for the protocol
+contract.
+
+## Setup (development)
 
 ```bash
 cd frontend
 npm install
-cp .env.example .env   # optional; defaults derive from window.location
+cp .env.example .env   # points at the funnel by default
 npm run dev            # dev server on :5173
 ```
 
@@ -21,16 +25,62 @@ npm run build          # tsc -b && vite build
 npm test               # vitest (unit tests)
 ```
 
-## Configuration (plan §3)
+## Packaging the kiosk executable
 
-All optional; unset values derive from `window.location` (with `https`→`wss`).
+```bash
+npm run package        # build + bundle into release/kiosk.exe
+```
 
-| Var | Default | Purpose |
+Produces `release/kiosk.exe` (~82 MB — Node's Single Executable Application
+format embeds the Node runtime). Running it starts a loopback-only static server
+and opens the default browser at it. No install, no Node required on the target
+machine.
+
+**Build on the platform you are shipping to** — SEA cannot cross-compile; the
+exe is made from the running `node` binary.
+
+Two constraints worth knowing before changing any of this:
+
+- **The UI is served over `http://127.0.0.1`, never `file://`.** Loopback is a
+  *secure context*, so `getUserMedia` works; `file://` is not, so the mic would
+  be permanently unavailable. ES-module imports and `AudioWorklet.addModule()`
+  are also blocked from `file://`. Serving locally is what makes the exe work.
+- **The launcher entry point is CommonJS** (`launcher/launcher.cjs`). SEA embeds
+  the source text and runs it through the CJS embedder, so an ESM entry fails at
+  startup with "Cannot use import statement outside a module".
+
+The server URL is **baked in at build time** from `.env.production`, so the exe
+is tied to one backend: repointing it at a different server means rebuilding and
+redistributing. `launcher/build.mjs` refuses to package a bundle whose WebSocket
+URL resolves to loopback, which is the signature of a missing `.env.production`.
+
+## Configuration
+
+`.env.production` is the build input for the packaged exe and **is committed**.
+`.env` (gitignored) overrides it for local dev.
+
+| Var | Value | Purpose |
 |---|---|---|
-| `VITE_SERVER_WS_URL` | `ws://<host>:8765/ws` | WebSocket endpoint |
-| `VITE_HEALTH_URL` | `http://<host>:8000/health` | Health poll |
+| `VITE_SERVER_WS_URL` | `wss://<host>:<port>/ws` | WebSocket — the entire API |
+| `VITE_HEALTH_URL` | `https://<host>:<port>/health` | Readiness poll |
 | `VITE_KIOSK_ID` | `kiosk-01` | `session_start` |
 | `VITE_KIOSK_LOCATION` | `Floor 1 Lobby` | `session_start` |
+
+Must be `wss://` — the funnel is TLS-only. If unset, config falls back to
+`window.location`, which is correct only when the server itself serves the page;
+in a packaged build that would point at the launcher, hence the build guard.
+
+## Readiness gate
+
+`/health` returns `{"status":"healthy"}` **while the models are still loading**,
+so `status` alone is not a readiness signal — the per-component states under
+`components` (`stt`, `llm_chain`, `rag`) are. The mic stays disabled and the
+connection pill reads `WARMING` until all three report `ready`; the first launch
+after a deploy can sit there for a while.
+
+`tts` is deliberately excluded from the gate: a degraded engine (the live server
+currently reports `kokoclone_ja: not_initialized`) is reduced capability, not
+failure, and must not disable the kiosk.
 
 ## Architecture (plan §4) — module → task map
 
