@@ -89,6 +89,44 @@ if (wsUrls.some((u) => /\/\/(localhost|127\.0\.0\.1|\[::1\])[:/]/i.test(u))) {
 }
 console.log(`[build] bundle targets: ${[...new Set(wsUrls)].join(", ")}`);
 
+// Guard: the AudioWorklets must ship as real, transpiled JS.
+//
+// This shipped broken once. `new URL("./x-worklet.ts", import.meta.url)` makes
+// Vite inline the raw TypeScript source as `data:video/mp2t;base64,...` (".ts"
+// is MPEG Transport Stream to a MIME lookup, not TypeScript). addModule()
+// rejects it, which kills BOTH TTS playback and mic capture — and `vite dev`
+// hides it, because the dev server transpiles .ts on request. The only place it
+// is catchable is here, against the production bundle.
+for (const name of ["playback-worklet.js", "capture-worklet.js"]) {
+  const worklet = files.find((f) => f.endsWith(name));
+  if (!worklet) {
+    fail(
+      `Missing dist/assets/${name}. The AudioWorklets must be built as separate ` +
+        "Rollup entries (see vite.config.ts) — without them the kiosk has no " +
+        "audio playback and no microphone."
+    );
+  }
+  const src = readFileSync(worklet, "utf8");
+  if (!/registerProcessor\s*\(/.test(src)) {
+    fail(`${name} does not call registerProcessor() — it is not a valid worklet.`);
+  }
+  // TS annotations surviving into the asset mean it was never transpiled.
+  if (/(^|\s)(private|public|readonly)\s+\w+\s*:/.test(src)) {
+    fail(
+      `${name} still contains TypeScript syntax — it was not transpiled and the ` +
+        "browser will refuse to load it."
+    );
+  }
+}
+if (bundleText.includes("data:video/mp2t")) {
+  fail(
+    "The bundle inlines a worklet as a data:video/mp2t URL — the .ts-as-video " +
+      "MIME bug is back. Worklets must be separate Rollup entries; see " +
+      "src/audio/workletUrl.ts."
+  );
+}
+console.log("[build] worklets: playback + capture present and transpiled");
+
 // --- 2. SEA config with embedded assets ------------------------------------
 
 rmSync(outDir, { recursive: true, force: true });

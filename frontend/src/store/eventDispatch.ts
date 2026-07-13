@@ -98,11 +98,11 @@ function flushTokenQueue(): void {
   stopDrain();
 }
 
-// Tracks whether the current turn's first token / first audio frame has
-// already been traced, so SystemTrace logs one "streaming" line per turn
-// rather than one per token/frame (spec §3.4: compact log lines).
+// Tracks whether the current turn's first token has already been traced, so
+// SystemTrace logs one "streaming" line per turn rather than one per token
+// (spec §3.4: compact log lines). The audio equivalent lives in PlaybackTracker,
+// which is the module binary frames actually reach.
 let tokenStreamTraced = false;
-let audioStreamTraced = false;
 
 export function dispatchEvent(ev: InboundEvent, hooks: DispatchHooks = {}): void {
   switch (ev.kind) {
@@ -148,10 +148,9 @@ export function dispatchEvent(ev: InboundEvent, hooks: DispatchHooks = {}): void
     }
 
     case "audio":
-      if (!audioStreamTraced) {
-        appendTrace("active", "tts: streaming audio...");
-        audioStreamTraced = true;
-      }
+      // Unreachable: ConnectionManager sends binary frames straight to the
+      // audio sink and returns without calling dispatchEvent. The first-frame
+      // trace lives in PlaybackTracker.onAudioFrame, which IS on that path.
       break;
 
     case "unknown":
@@ -170,7 +169,6 @@ export function dispatchEvent(ev: InboundEvent, hooks: DispatchHooks = {}): void
  */
 export function resetTurnTrace(): void {
   tokenStreamTraced = false;
-  audioStreamTraced = false;
   // Also flush any queued tokens from the previous turn so a barge-in starts
   // clean and the old bubble doesn't continue rendering after interruption.
   flushTokenQueue();
