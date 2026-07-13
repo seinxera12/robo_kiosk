@@ -27,7 +27,11 @@ npm test               # vitest (unit tests)
 
 ## Packaging the kiosk executable
 
-```bash
+> **Run this from Windows (PowerShell), not WSL.** Node 20+ required (22
+> recommended). Building from WSL fails the preflight check by design — see below.
+
+```powershell
+cd \\wsl.localhost\Ubuntu\home\<user>\robotic_robo\frontend
 npm run package        # build + bundle into release/kiosk.exe
 ```
 
@@ -36,8 +40,15 @@ format embeds the Node runtime). Running it starts a loopback-only static server
 and opens the default browser at it. No install, no Node required on the target
 machine.
 
-**Build on the platform you are shipping to** — SEA cannot cross-compile; the
-exe is made from the running `node` binary.
+**Why Windows and not WSL.** SEA builds the executable by copying the *running*
+`node` binary and injecting into it, so the output always targets the host
+platform — there is no cross-compile. Building from WSL would produce a Linux
+binary named `kiosk`, never a Windows `kiosk.exe`, and the Node on WSL here is
+v18, which predates SEA entirely (`--experimental-sea-config` does not exist).
+The build refuses both cases up front with an explanatory message rather than
+dying in Node's internals.
+
+Set `KIOSK_ALLOW_NON_WINDOWS=1` if you genuinely want a Linux binary.
 
 Two constraints worth knowing before changing any of this:
 

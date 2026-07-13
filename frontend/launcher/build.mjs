@@ -41,7 +41,45 @@ const FUSE = "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2";
 
 function fail(msg) {
   console.error(`\n[build] ${msg}\n`);
+  // Set exitCode as well as exiting: process.exit() alone can be lost when
+  // called during an ESM module's top-level evaluation (observed on Node 18),
+  // which would make a FAILED build report success to `npm run package`.
+  process.exitCode = 1;
   process.exit(1);
+}
+
+// --- 0. preflight ----------------------------------------------------------
+//
+// Check the toolchain BEFORE doing any work. Both of these fail deep inside
+// Node with an unreadable stack trace otherwise (`bad option:
+// --experimental-sea-config`), which says nothing about what to actually do.
+
+const nodeMajor = Number(process.versions.node.split(".")[0]);
+if (nodeMajor < 20) {
+  fail(
+    `Node ${process.versions.node} cannot build a single executable — SEA needs Node 20+ ` +
+      "(22 recommended), and --experimental-sea-config does not exist before it.\n" +
+      "  This usually means you ran the build from WSL/Linux, where an older Node is on PATH.\n" +
+      "  Build from Windows instead (see below)."
+  );
+}
+
+// SEA makes the executable by copying the RUNNING node binary and injecting into
+// it, so the output always targets the host platform. Building on Linux yields a
+// Linux binary called "kiosk" — never a Windows kiosk.exe. There is no
+// cross-compile; this is a property of SEA, not a missing flag.
+if (!isWindows && !process.env.KIOSK_ALLOW_NON_WINDOWS) {
+  fail(
+    `Running on ${process.platform}, so this would produce a ${process.platform} binary, not kiosk.exe.\n` +
+      "  SEA builds the exe from the running node binary and cannot cross-compile.\n" +
+      "\n" +
+      "  To build the Windows kiosk.exe, run from PowerShell (Node 20+):\n" +
+      "      cd \\\\wsl.localhost\\Ubuntu\\home\\<user>\\robotic_robo\\frontend\n" +
+      "      npm run build\n" +
+      "      node launcher/build.mjs\n" +
+      "\n" +
+      "  Set KIOSK_ALLOW_NON_WINDOWS=1 if you genuinely want a Linux binary."
+  );
 }
 
 // --- 1. collect dist -------------------------------------------------------
