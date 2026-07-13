@@ -397,10 +397,13 @@ class VoicePipeline:
                         from server.search.query_reformulator import extract_search_query
                         from server.llm.prompt_builder import format_search_context
                         
-                        # Query reformulation happens here (with its own detailed logging)
+                        # Query reformulation happens here (with its own detailed
+                        # logging). Runs on the same LLM endpoint as the chat
+                        # backend — hence config.
                         search_query = extract_search_query(
                             transcript.text,
                             recent_history=self.state.conversation_history,
+                            config=self.config,
                         )
                         
                         logger.info("─" * 80)

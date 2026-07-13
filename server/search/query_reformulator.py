@@ -2,27 +2,33 @@
 Search query reformulator module.
 
 Converts raw conversational transcripts into concise English search queries
-via a non-streaming Ollama call. Handles Japanese-to-English translation
+via a non-streaming LLM call. Handles Japanese-to-English translation
 when Japanese characters are detected.
+
+Inference backend: the SAME endpoint the main chat LLM uses (VLLM_BASE_URL —
+in the deployed stack, the LiteLLM proxy). It used to call a separate Ollama
+service with its own small model, which meant a second model to host, keep warm,
+and keep in sync. Routing both through one endpoint removes that.
+
+Two things the old Ollama path did NOT have to deal with, and which are easy to
+get wrong here:
+
+  * VLLM_BASE_URL ALREADY INCLUDES the "/v1" suffix (e.g.
+    http://litellm:4000/v1). The old code stripped "/v1" and re-appended it;
+    doing that here would produce ".../v1/v1/chat/completions".
+  * The proxy ENFORCES AUTH. The main backend sends VLLM_API_KEY; a request
+    without it is rejected. The old Ollama endpoint needed no key.
 """
 
 import logging
-import os
-
-# Base URL of the Ollama backend. Read from the environment so the same code
-# works in Docker (service DNS name, e.g. http://ollama:11434) and on a host
-# (http://localhost:11434). The OpenAI-compatible /v1 suffix is added at call
-# time, so strip any trailing "/v1" the operator may have included.
-OLLAMA_BASE_URL: str = (
-    os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-    .rstrip("/")
-    .removesuffix("/v1")
-    .rstrip("/")
-)
-REFORMULATOR_MODEL: str = os.getenv("REFORMULATOR_MODEL", "qwen2.5:3b-instruct")
 
 # Logger setup
 logger = logging.getLogger(__name__)
+
+# Reformulation is a short, deterministic extraction — not a chat turn.
+_MAX_TOKENS = 32
+_TEMPERATURE = 0
+_TIMEOUT_SECONDS = 10.0
 
 
 def _is_japanese(text: str) -> bool:
@@ -78,21 +84,28 @@ def _build_system_prompt(is_japanese: bool) -> str:
 def extract_search_query(
     user_message: str,
     recent_history: list[dict] | None = None,
+    config=None,
 ) -> str:
     """
     Convert a raw conversational utterance into a concise English search query.
-    
-    Makes a synchronous, non-streaming call to Ollama to reformulate the user's
-    message into a 3-6 word English search query. Handles Japanese-to-English
-    translation when Japanese characters are detected. Falls back to the original
-    user_message on any exception.
-    
+
+    Makes a synchronous, non-streaming call to the MAIN LLM endpoint (the same
+    one the chat backend uses) to reformulate the user's message into a 3-6 word
+    English search query. Handles Japanese-to-English translation when Japanese
+    characters are detected. Falls back to the original user_message on any
+    exception — a failed reformulation degrades search quality, it never breaks
+    the turn.
+
     Args:
         user_message: The verbatim transcript string (transcript.text).
         recent_history: Optional slice of conversation_history. The function
                         internally enforces a hard [-6:] slice regardless of
                         the length supplied by the caller.
-    
+        config: Config object supplying VLLM_BASE_URL / VLLM_MODEL_NAME /
+                VLLM_API_KEY. The pipeline passes its own Config so the
+                reformulator provably hits the same endpoint as the chat LLM.
+                Falls back to Config.from_env() when omitted.
+
     Returns:
         A concise English search query string (stripped of whitespace).
         Falls back to user_message on any exception.
@@ -104,9 +117,25 @@ def extract_search_query(
     try:
         import httpx
         import time
-        
+
         start_time = time.time()
-        
+
+        # Callers in-process pass the pipeline's Config so we hit exactly the
+        # endpoint the chat LLM is using. Standalone callers get the same values
+        # from the environment.
+        if config is None:
+            from server.config import Config
+
+            config = Config.from_env()
+
+        # The main chat LLM's endpoint. VLLM_BASE_URL already ends in /v1 (e.g.
+        # http://litellm:4000/v1), so append only the path — never another "/v1".
+        base_url = str(config.VLLM_BASE_URL).rstrip("/")
+        endpoint = f"{base_url}/chat/completions"
+        model = config.VLLM_MODEL_NAME
+        # The proxy enforces auth; the main backend always sends this key.
+        api_key = getattr(config, "VLLM_API_KEY", None) or "local"
+
         # Log input
         logger.info(f"📝 Original user message: '{user_message}'")
         logger.info(f"📊 Message length: {len(user_message)} characters")
@@ -151,29 +180,34 @@ def extract_search_query(
         
         # Build request body for OpenAI-compatible API
         request_body = {
-            "model": REFORMULATOR_MODEL,
+            "model": model,
             "messages": messages,
             "stream": False,
-            "temperature": 0,
-            "max_tokens": 32,
+            "temperature": _TEMPERATURE,
+            "max_tokens": _MAX_TOKENS,
         }
-        
-        logger.info(f"🤖 Calling Ollama model: {REFORMULATOR_MODEL}")
-        logger.info(f"⚙️  Model settings: temperature=0, max_tokens=32, stream=False")
-        logger.info(f"🌐 Ollama endpoint: {OLLAMA_BASE_URL}/v1/chat/completions")
-        
-        # Make synchronous HTTP call with 10-second timeout
-        # Use OpenAI-compatible endpoint (/v1/chat/completions) instead of native Ollama API
+
+        logger.info(f"🤖 Calling LLM model: {model}")
+        logger.info(
+            f"⚙️  Model settings: temperature={_TEMPERATURE}, "
+            f"max_tokens={_MAX_TOKENS}, stream=False"
+        )
+        logger.info(f"🌐 LLM endpoint: {endpoint}")
+
+        # Synchronous, non-streaming call against the same OpenAI-compatible
+        # endpoint the chat backend uses. The Authorization header is required:
+        # the LiteLLM proxy rejects unauthenticated requests.
         call_start = time.time()
-        with httpx.Client(timeout=httpx.Timeout(10.0)) as client:
+        with httpx.Client(timeout=httpx.Timeout(_TIMEOUT_SECONDS)) as client:
             response = client.post(
-                f"{OLLAMA_BASE_URL}/v1/chat/completions",
+                endpoint,
                 json=request_body,
+                headers={"Authorization": f"Bearer {api_key}"},
             )
             response.raise_for_status()
-        
+
         call_duration = time.time() - call_start
-        logger.info(f"⏱️  Ollama call completed in {call_duration:.2f}s")
+        logger.info(f"⏱️  LLM call completed in {call_duration:.2f}s")
         
         # Parse OpenAI-compatible response format
         response_data = response.json()

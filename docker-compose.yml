@@ -70,8 +70,10 @@ services:
       # SearXNG configuration
       - SEARXNG_URL=http://searxng:8080
 
-      # Query reformulator (search) — talks to the ollama service
-      - REFORMULATOR_MODEL=${REFORMULATOR_MODEL:-qwen2.5:3b-instruct}
+      # NOTE: the search query reformulator has no config of its own. It runs on
+      # the SAME endpoint/model as the main chat LLM (VLLM_BASE_URL /
+      # VLLM_MODEL_NAME above), so there is no second model to host or keep warm.
+      # The old REFORMULATOR_MODEL var (a separate small Ollama model) is gone.
 
       # CORS — comma-separated origins; "*" for open kiosk access
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
