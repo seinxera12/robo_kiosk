@@ -134,7 +134,7 @@ fi
 
 # Check if models are downloaded
 echo "Checking AI models..."
-MODEL_DIRS=("models/whisper" "models/embeddings" "models/cosyvoice")
+MODEL_DIRS=("models/whisper" "models/embeddings" "models/kokoro")
 MODELS_FOUND=0
 for dir in "${MODEL_DIRS[@]}"; do
     if [ -d "$dir" ] && [ "$(ls -A $dir 2>/dev/null)" ]; then

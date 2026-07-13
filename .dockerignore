@@ -65,8 +65,12 @@ chroma_data/
 
 # Docker
 docker-compose*.yml
+docker-compose.override.yml
 Dockerfile
 .dockerignore
+
+# Frontend (deployed on the client device, never in the server image)
+frontend/
 
 # Scripts
 scripts/

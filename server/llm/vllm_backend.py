@@ -25,9 +25,11 @@ class VLLMBackend:
         Args:
             config: Configuration object with VLLM_BASE_URL and VLLM_MODEL_NAME
         """
+        # "local" for a raw vLLM server (key ignored); a real key when routing
+        # through a LiteLLM proxy that enforces auth. Driven by VLLM_API_KEY.
         self.client = AsyncOpenAI(
             base_url=config.VLLM_BASE_URL,
-            api_key="local"  # vLLM doesn't require real API key
+            api_key=getattr(config, "VLLM_API_KEY", None) or "local",
         )
         self.model = config.VLLM_MODEL_NAME
         logger.info(f"Initialized vLLM backend: {self.model} at {config.VLLM_BASE_URL}")

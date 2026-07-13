@@ -1,0 +1,13 @@
+# Optional: LOCAL faster-whisper STT backend (STT_BACKEND=local).
+#
+# Not installed in the default server image — the deployment uses the remote STT
+# service instead. Install this on top of requirements.txt only if you want the
+# in-process backend:
+#
+#     pip install -r requirements.txt -r requirements-local-stt.txt
+#
+# NOTE: faster-whisper pulls PyAV (`av`), which may build from source. If no
+# prebuilt wheel is available for your Python/platform, the build host needs:
+#     apt-get install -y pkg-config libavformat-dev libavcodec-dev \
+#         libavdevice-dev libavutil-dev libavfilter-dev libswscale-dev libswresample-dev
+faster-whisper==0.10.0

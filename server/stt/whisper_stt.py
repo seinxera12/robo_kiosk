@@ -7,22 +7,18 @@ Whisper STT implementation using faster-whisper.
 import asyncio
 import logging
 import time
-from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Optional
 
 import numpy as np
-from faster_whisper import WhisperModel
+
+from server.stt.types import TranscriptionResult
+
+try:
+    from faster_whisper import WhisperModel
+except ImportError:  # remote-only image: faster-whisper (and PyAV) not installed
+    WhisperModel = None
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class TranscriptionResult:
-    """Result of STT transcription."""
-    text: str
-    language: Literal["en", "ja"]
-    confidence: float
-    duration_ms: int
 
 
 class WhisperSTT:
@@ -56,11 +52,18 @@ class WhisperSTT:
         
         **Validates: Requirements 4.1, 4.4, 4.5, 24.3, 24.4**
         """
+        if WhisperModel is None:
+            raise RuntimeError(
+                "Local STT backend requires faster-whisper, which is not "
+                "installed. Install server/requirements-local-stt.txt, or set "
+                "STT_BACKEND=remote to use the remote STT service."
+            )
+
         logger.info(
             f"Initializing WhisperSTT: model={model_size}, "
             f"device={device}, compute_type={compute_type}"
         )
-        
+
         try:
             self.model = WhisperModel(
                 model_size,

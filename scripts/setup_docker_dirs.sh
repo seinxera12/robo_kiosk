@@ -10,7 +10,7 @@ echo "Setting up Docker Compose directory structure..."
 echo "Creating model directories..."
 mkdir -p models/whisper
 mkdir -p models/embeddings
-mkdir -p models/cosyvoice
+mkdir -p models/kokoro
 mkdir -p models/ollama
 
 # Create building knowledge base directories

@@ -10,7 +10,6 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Optional, Any
-import torch
 from starlette.websockets import WebSocketDisconnect
 
 import logging
@@ -113,12 +112,8 @@ class VoicePipeline:
         if stt is not None:
             self.stt = stt
         else:
-            from server.stt.whisper_stt import WhisperSTT
-            self.stt = WhisperSTT(
-                model_size=config.stt_model,
-                device=config.stt_device,
-                compute_type=config.stt_compute_type
-            )
+            from server.stt import create_stt
+            self.stt = create_stt(config)
 
         if llm_chain is not None:
             self.llm_chain = llm_chain
@@ -748,7 +743,7 @@ class VoicePipeline:
 
                 # Use router-level synthesize_stream so per-request fallback
                 # works automatically: if KokoClone service is down, the router
-                # transparently retries with KokoroJP, then VOICEVOX, etc.
+                # transparently retries with KokoroJP.
                 # No need to call get_engine() — the router handles selection
                 # and fallback internally.
                 async def _synthesize_and_queue(text: str, lang: str) -> None:

@@ -24,7 +24,6 @@ class Config:
     vllm_model_name: str
     ollama_base_url: str
     ollama_model_name: str
-    grok_api_key: Optional[str]
 
     # STT Configuration
     stt_model: str
@@ -48,6 +47,17 @@ class Config:
     kiosk_metadata: dict = None
 
     stt_device: str = "cuda"
+
+    # STT backend selection. "local" loads faster-whisper in-process (own VRAM);
+    # "remote" calls an existing faster-whisper HTTP service instead.
+    stt_backend: str = "local"
+    # Full URL of the remote transcription endpoint (OpenAI-compatible), e.g.
+    # http://stt-fastwhisper:8000/v1/audio/transcriptions
+    stt_remote_url: str = "http://stt-fastwhisper:8000/v1/audio/transcriptions"
+
+    # Real API key required when routing vLLM traffic via a LiteLLM proxy;
+    # "local" is fine for a raw vLLM server (which ignores the key).
+    vllm_api_key: str = "local"
 
     # Kokoro-82M TTS (English primary engine)
     kokoro_voice: str = "af_heart"   # American female -- best general-purpose voice
@@ -87,8 +97,8 @@ class Config:
         return self.ollama_model_name
 
     @property
-    def GROK_API_KEY(self):
-        return self.grok_api_key
+    def VLLM_API_KEY(self):
+        return self.vllm_api_key
 
     @property
     def CHROMADB_PATH(self):
@@ -103,12 +113,17 @@ class Config:
             vllm_model_name=os.getenv("VLLM_MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct-AWQ"),
             ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
             ollama_model_name=os.getenv("OLLAMA_MODEL_NAME", "qwen2.5:7b-instruct"),
-            grok_api_key=os.getenv("GROK_API_KEY"),
+            vllm_api_key=os.getenv("VLLM_API_KEY", "local"),
 
             # STT Configuration
             stt_model=os.getenv("STT_MODEL", "large-v3"),
             stt_compute_type=os.getenv("STT_COMPUTE_TYPE", "float16"),
             stt_device=os.getenv("STT_DEVICE", "cuda"),
+            stt_backend=os.getenv("STT_BACKEND", "local").lower(),
+            stt_remote_url=os.getenv(
+                "STT_REMOTE_URL",
+                "http://stt-fastwhisper:8000/v1/audio/transcriptions",
+            ),
 
             # RAG Configuration
             chromadb_path=os.getenv("CHROMADB_PATH", "/chroma"),

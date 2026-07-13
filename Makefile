@@ -19,7 +19,6 @@ help:
 	@echo "  make logs-server    - View voice-server logs"
 	@echo "  make logs-vllm      - View vLLM logs"
 	@echo "  make logs-ollama    - View Ollama logs"
-	@echo "  make logs-voicevox  - View VOICEVOX logs"
 	@echo "  make logs-searxng   - View SearXNG logs"
 	@echo "  make ps             - Show service status"
 	@echo "  make health         - Check service health"
@@ -81,9 +80,6 @@ logs-vllm:
 logs-ollama:
 	@docker compose logs -f ollama
 
-logs-voicevox:
-	@docker compose logs -f voicevox
-
 logs-searxng:
 	@docker compose logs -f searxng
 
@@ -99,13 +95,10 @@ health:
 	@docker compose ps
 	@echo ""
 	@echo "=== voice-server health ==="
-	@curl -f http://localhost:8000/health 2>/dev/null && echo "✓ voice-server is healthy" || echo "✗ voice-server is unhealthy"
+	@curl -f http://localhost:8765/health 2>/dev/null && echo "✓ voice-server is healthy" || echo "✗ voice-server is unhealthy"
 	@echo ""
 	@echo "=== vLLM health ==="
 	@curl -f http://localhost:8001/health 2>/dev/null && echo "✓ vLLM is healthy" || echo "✗ vLLM is unhealthy"
-	@echo ""
-	@echo "=== VOICEVOX health ==="
-	@curl -f http://localhost:50021/version 2>/dev/null && echo "✓ VOICEVOX is healthy" || echo "✗ VOICEVOX is unhealthy"
 	@echo ""
 	@echo "=== SearXNG health ==="
 	@curl -f http://localhost:8080/ 2>/dev/null && echo "✓ SearXNG is healthy" || echo "✗ SearXNG is unhealthy"
@@ -142,10 +135,6 @@ restart-vllm:
 restart-ollama:
 	@echo "Restarting Ollama..."
 	@docker compose restart ollama
-
-restart-voicevox:
-	@echo "Restarting VOICEVOX..."
-	@docker compose restart voicevox
 
 restart-searxng:
 	@echo "Restarting SearXNG..."

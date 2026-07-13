@@ -7,10 +7,19 @@ when Japanese characters are detected.
 """
 
 import logging
+import os
 
-# Module-level constants
-OLLAMA_BASE_URL: str = "http://localhost:11434"
-REFORMULATOR_MODEL: str = "qwen2.5:3b-instruct"
+# Base URL of the Ollama backend. Read from the environment so the same code
+# works in Docker (service DNS name, e.g. http://ollama:11434) and on a host
+# (http://localhost:11434). The OpenAI-compatible /v1 suffix is added at call
+# time, so strip any trailing "/v1" the operator may have included.
+OLLAMA_BASE_URL: str = (
+    os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
+    .rstrip("/")
+    .removesuffix("/v1")
+    .rstrip("/")
+)
+REFORMULATOR_MODEL: str = os.getenv("REFORMULATOR_MODEL", "qwen2.5:3b-instruct")
 
 # Logger setup
 logger = logging.getLogger(__name__)

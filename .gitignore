@@ -1,6 +1,9 @@
 # Environment variables
 .env
-.env.localf
+.env.local
+
+# Dev-only compose override (NEVER deploy to server) — use the .example template
+docker-compose.override.yml
 
 # Python cache
 __pycache__/
@@ -8,11 +11,22 @@ __pycache__/
 *$py.class
 *.so
 
+# Test / build caches
+.hypothesis/
+.pytest_cache/
+*.tsbuildinfo
+
 # Model weights
 models/
 
+# Frontend / legacy client build artifacts (not needed on the server)
+frontend/dist/
+frontend/node_modules/
+client/__pycache__/
+
 # Virtual environment
 client-venv/
+client/client-venv/
 venv/
 env/
 ENV/
@@ -31,16 +45,23 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
 
 # ChromaDB data
 chroma_data/
+chroma_db/
 chroma/
 *.db
+
+# Host environment snapshots
+env_snapshots/
 
 # Temporary files
 *.tmp
 *.bak
-.env.local
+
+# Windows download metadata
+*:Zone.Identifier
 
 # Audio Tests Files
 *.wav

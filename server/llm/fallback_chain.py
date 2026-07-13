@@ -1,7 +1,7 @@
 """
 LLM fallback chain orchestrator.
 
-Manages automatic failover between vLLM, Ollama, and Grok backends
+Manages automatic failover between vLLM and Ollama backends
 with health checking and caching of last successful backend.
 """
 
@@ -11,7 +11,6 @@ import logging
 
 from server.llm.vllm_backend import VLLMBackend
 from server.llm.ollama_backend import OllamaBackend
-from server.llm.grok_backend import GrokBackend
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +18,8 @@ logger = logging.getLogger(__name__)
 class LLMFallbackChain:
     """
     LLM fallback chain with automatic backend failover.
-    
-    Tries backends in order: vLLM → Ollama → Grok API
+
+    Tries backends in order: vLLM → Ollama
     Caches last successful backend for optimization.
     """
     
@@ -40,9 +39,6 @@ class LLMFallbackChain:
             logger.info("vLLM backend disabled (VLLM_MODEL_NAME=disabled)")
 
         backends.append(OllamaBackend(config))
-
-        if config.GROK_API_KEY:
-            backends.append(GrokBackend(config))
 
         self.backends = backends
         self._healthy_index = 0  # Cache last successful backend

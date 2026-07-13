@@ -6,8 +6,8 @@ A fully self-hosted, bilingual (English + Japanese) real-time streaming voice ch
 
 - **Bilingual Support**: English and Japanese with automatic language detection
 - **Real-time Streaming**: Sub-600ms Time-to-First-Audio (TTFA)
-- **Self-hosted**: Fully local deployment except optional Grok API fallback
-- **LLM Fallback Chain**: vLLM → Ollama → Grok API for high availability
+- **Self-hosted**: Fully local deployment
+- **LLM Fallback Chain**: vLLM → Ollama for high availability
 - **RAG Integration**: ChromaDB-backed building knowledge base
 - **Voice Activity Detection**: Automatic speech start/end detection
 - **Barge-in Support**: Interrupt system responses naturally
@@ -17,16 +17,16 @@ A fully self-hosted, bilingual (English + Japanese) real-time streaming voice ch
 
 ### Server (GPU)
 - **STT**: Whisper Large V3 Turbo via faster-whisper
-- **LLM**: Qwen2.5-3b-Instruct via vLLM/Ollama, Grok-3-fast fallback
-- **TTS**: Kokoro (English), KokoClone (Japanese)
+- **LLM**: Qwen2.5-3b-Instruct via vLLM (primary) / Ollama (fallback)
+- **TTS**: Kokoro-82M (English + Japanese secondary), KokoClone (Japanese primary)
 - **RAG**: ChromaDB with multilingual-e5-large embeddings
 - **Web Search**: Self-hosted SearXNG integration
 
-### Client (CPU)
-- **Audio Capture**: 16kHz PCM16 via sounddevice
-- **VAD**: Silero VAD for speech detection
-- **UI**: PyQt6 fullscreen kiosk interface
-- **Playback**: Opus-decoded audio via sounddevice
+### Frontend (Browser)
+- **UI**: React + Vite web dashboard
+- **Audio Capture**: 16kHz PCM16 via Web Audio API + AudioWorklet
+- **VAD**: In-browser voice activity detection
+- **Playback**: Streamed audio via Web Audio API
 
 ## System Requirements
 
@@ -60,7 +60,7 @@ chmod +x scripts/download_models.sh
 **Note**: Model download script is a placeholder. Please download models manually:
 - Whisper Large V3 Turbo
 - multilingual-e5-large
-- CosyVoice2-0.5B
+- Kokoro-82M
 - Qwen2.5-7B-Instruct-AWQ
 
 ### 3. Configure Environment
@@ -73,7 +73,6 @@ cp .env.example .env
 Required environment variables:
 - `VLLM_BASE_URL`: vLLM server URL
 - `OLLAMA_BASE_URL`: Ollama server URL
-- `GROK_API_KEY`: xAI API key (optional)
 - `CHROMADB_PATH`: Path to ChromaDB storage
 - `SERVER_WS_URL`: WebSocket server URL (client)
 - `KIOSK_ID`: Unique kiosk identifier (client)
@@ -94,23 +93,15 @@ docker-compose up -d
 
 This starts:
 - voice-server (main server)
-- vLLM (primary LLM)
-- Ollama (secondary LLM)
-- VOICEVOX (Japanese TTS)
-- SearXNG (web search)
+- Ollama (secondary LLM; vLLM is the intended primary — enable its service on the GPU host)
+- SearXNG + Redis (web search)
 
-### 6. Setup Client (Kiosk)
+### 6. Run the Frontend
 
 ```bash
-# Install Python dependencies
-pip install -r client/requirements.txt
-
-# Configure kiosk OS (Ubuntu 22.04)
-sudo ./scripts/setup_kiosk_os.sh
-
-# Enable and start service
-sudo systemctl enable kiosk.service
-sudo systemctl start kiosk.service
+cd frontend
+npm install
+npm run dev
 ```
 
 ## Usage
@@ -123,27 +114,11 @@ The server runs automatically via Docker Compose. Check health:
 curl http://localhost:8765/health
 ```
 
-### Client
+### Frontend
 
-The client runs as a systemd service on kiosk hardware. Check status:
-
-```bash
-systemctl status kiosk.service
-```
-
-View logs:
-
-```bash
-journalctl -u kiosk.service -f
-```
-
-### Manual Client Start
-
-For development/testing:
-
-```bash
-python3 client/main.py
-```
+The React frontend connects to the server WebSocket at `ws://<server>:8765/ws`.
+For development it runs via `npm run dev`; for kiosk deployment build with
+`npm run build` and serve the `frontend/dist` output.
 
 ## Configuration
 
@@ -156,19 +131,16 @@ VLLM_BASE_URL = "http://localhost:8000/v1"
 VLLM_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct-AWQ"
 OLLAMA_BASE_URL = "http://localhost:11434/v1"
 OLLAMA_MODEL_NAME = "qwen2.5:7b"
-GROK_API_KEY = "xai-..."  # Optional
 CHROMADB_PATH = "./chroma_db"
 BUILDING_NAME = "Office Building"
 ```
 
-### Client Configuration
+### Frontend Configuration
 
-Edit `client/config.py` or set environment variables:
+Edit `frontend/.env` (see `frontend/.env.example`) to point the UI at the server:
 
-```python
-SERVER_WS_URL = "ws://server:8765/ws"
-KIOSK_ID = "kiosk-01"
-KIOSK_LOCATION = "Floor 1 Lobby"
+```
+VITE_SERVER_WS_URL=ws://localhost:8765/ws
 ```
 
 ## Knowledge Base
@@ -209,29 +181,20 @@ After adding documents, re-run ingestion:
 - Ensure ChromaDB path is writable
 - Re-run ingestion: `./scripts/ingest_kb.sh`
 
-**VOICEVOX not responding:**
-- Check container status: `docker-compose ps voicevox`
-- Restart: `docker-compose restart voicevox`
+**KokoClone (Japanese TTS) not responding:**
+- Ensure the KokoClone microservice is running (default port 5003)
+- The server automatically falls back to Kokoro-82M Japanese if it is down
 
-### Client Issues
+### Frontend Issues
 
 **No audio input:**
-- Check microphone: `arecord -l`
-- Test recording: `arecord -d 5 test.wav`
-- Check permissions: User must be in `audio` group
-
-**No audio output:**
-- Check speakers: `aplay -l`
-- Test playback: `aplay test.wav`
+- Grant microphone permission in the browser
+- A secure context (https:// or localhost) is required for `getUserMedia`
 
 **WebSocket connection failed:**
-- Check server is running: `curl http://server:8765/health`
-- Check network connectivity
-- Check firewall rules
-
-**UI not displaying:**
-- Check DISPLAY variable: `echo $DISPLAY`
-- Check X11 permissions: `xhost +local:`
+- Check server is running: `curl http://<server>:8765/health`
+- Verify `VITE_SERVER_WS_URL` points at the server
+- Check network connectivity and firewall rules
 
 ## Development
 
@@ -239,12 +202,11 @@ After adding documents, re-run ingestion:
 
 ```bash
 # Server tests
-cd server
-pytest
+pytest server tests
 
-# Client tests
-cd client
-pytest
+# Frontend tests
+cd frontend
+npm test
 ```
 
 ### Code Structure
@@ -256,20 +218,14 @@ voice-kiosk-chatbot/
 │   ├── pipeline.py     # Pipeline orchestrator
 │   ├── stt/            # Speech-to-text
 │   ├── llm/            # LLM backends
-│   ├── tts/            # Text-to-speech
+│   ├── tts/            # Text-to-speech (Kokoro-82M, KokoClone)
 │   ├── rag/            # RAG and embeddings
 │   ├── search/         # Web search
 │   └── tools/          # LLM tools
-├── client/             # CPU kiosk client
-│   ├── main.py         # Client entry point
-│   ├── audio_capture.py
-│   ├── vad.py
-│   ├── ws_client.py
-│   ├── audio_playback.py
-│   ├── keyboard_input.py
-│   └── ui/             # PyQt6 UI
+├── frontend/           # React + Vite web UI
 ├── building_kb/        # Knowledge base documents
 ├── scripts/            # Setup and utility scripts
+├── searxng/            # SearXNG search config
 └── docker-compose.yml  # Server deployment
 ```
 
