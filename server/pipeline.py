@@ -17,6 +17,14 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# Words whose trailing "." belongs to the word, not to a sentence end. Splitting after
+# these cut "Dr. Smith" into "Dr" + "Smith" and the engine spelled the fragment out.
+_ABBREV_NO_SPLIT = frozenset({
+    "mr", "mrs", "ms", "dr", "prof", "st", "jr", "sr",
+    "vs", "etc", "eg", "ie", "approx", "no", "fig", "inc", "ltd", "co",
+    "a.m", "p.m", "u.s", "e.g", "i.e",
+})
+
 
 @dataclass
 class PipelineState:
@@ -630,9 +638,65 @@ class VoicePipeline:
             - 10.7: Flushes remaining buffer after LLM completes
         """
         logger.info("tts_worker started")
-        
+
         SENTENCE_ENDINGS = frozenset('.?!。？！…')
-        
+
+        def _is_sentence_end(buf: str) -> bool:
+            """
+            True if `buf` ends at a real sentence boundary.
+
+            A bare "ends with '.'" test is not good enough. Tokens arrive one at a time,
+            so the buffer is inspected the instant a "." lands — and a "." lands inside
+            plenty of things that are not sentence ends:
+
+                URLs          https://example.com/a  -> cut into "https://example" +
+                                                        "com/a", which the engine then
+                                                        SPELLS OUT. This is the
+                                                        "individual characters" bug.
+                decimals      "3.5 meters"           -> "3" + "5 meters"
+                abbreviations "Dr. Smith"            -> "Dr" + "Smith"
+                versions      "v1.2.3", filenames    "index.html"
+
+            A real sentence-ending "." is followed by whitespace or nothing. Mid-URL and
+            mid-decimal dots are followed immediately by a non-space, so requiring the
+            "." to be buffer-final is not enough on its own — but combined with the
+            checks below it holds, because we only ever test a buffer that just grew.
+
+            The non-ASCII terminators (。？！…) do not occur inside URLs or numbers, so
+            they always end a sentence.
+            """
+            if not buf:
+                return False
+            last = buf[-1]
+            if last not in SENTENCE_ENDINGS:
+                return False
+
+            # Unambiguous terminators — never appear mid-token.
+            if last in '?!。？！…':
+                return True
+
+            # last == '.'  — the ambiguous one.
+            stripped = buf.rstrip('.')
+            if not stripped:
+                return False
+
+            # Decimal / version / numbered list: a digit immediately before the dot.
+            if stripped[-1].isdigit():
+                return False
+
+            # Inside a URL: no whitespace since the scheme/host started.
+            tail = buf.rsplit(None, 1)[-1] if buf.split() else ""
+            lowered = tail.lower()
+            if lowered.startswith(('http://', 'https://', 'www.', 'ftp://')):
+                return False
+
+            # A known abbreviation ("Dr.", "e.g.") is not a sentence end.
+            last_word = tail[:-1].lower().lstrip('([')
+            if last_word in _ABBREV_NO_SPLIT:
+                return False
+
+            return True
+
         while True:
             try:
                 # Check for interrupt
@@ -667,8 +731,7 @@ class VoicePipeline:
                                 sentence_complete = True
                                 break
                             buffer += token
-                            if (buffer and
-                                    buffer[-1] in SENTENCE_ENDINGS and
+                            if (_is_sentence_end(buffer) and
                                     len(buffer) >= min_sentence_length):
                                 sentence_complete = True
                                 break
@@ -691,8 +754,7 @@ class VoicePipeline:
                             sentence_complete = True
                         else:
                             buffer += token
-                            if (buffer and
-                                    buffer[-1] in SENTENCE_ENDINGS and
+                            if (_is_sentence_end(buffer) and
                                     len(buffer) >= min_sentence_length):
                                 sentence_complete = True
 
@@ -724,6 +786,28 @@ class VoicePipeline:
                     tts_buffer = _re.sub(pat, '', tts_buffer, flags=_re.IGNORECASE).strip()
 
                 if not tts_buffer.strip():
+                    continue
+
+                # Strip markdown and URLs — speech only.
+                #
+                # The model writes for the screen: "## Hours", "**open**", cited source
+                # URLs. Spoken verbatim those become "hash hash Hours" and a long URL
+                # degrades into spelled-out characters.
+                #
+                # CONTRACT: this must stay on the TTS path. The llm_text_chunk events
+                # sent to the client (llm_worker, above) keep carrying RAW markdown —
+                # the frontend renders it as real formatting and clickable links.
+                # Normalising there would break the display. Speech is a rendering of
+                # the text, not a replacement for it. Same for conversation_history,
+                # which records what the model actually said.
+                from server.tts.speech_normalizer import normalize_for_speech
+                tts_buffer = normalize_for_speech(tts_buffer, current_lang)
+
+                # Normalisation can empty the buffer: a chunk that was only a code
+                # fence or only a URL has nothing left to say. Kokoro warns and
+                # produces no audio for "", so skip it.
+                if not tts_buffer.strip():
+                    logger.debug("tts_worker: buffer empty after normalization, skipping")
                     continue
 
                 logger.debug(f"Complete sentence detected: {tts_buffer[:50]}...")
@@ -767,8 +851,39 @@ class VoicePipeline:
                         self._synthesis_tasks.discard(asyncio.current_task())
                     logger.info("TTS synthesis complete for sentence")
 
+                # Synthesise sentences ONE AT A TIME, in order.
+                #
+                # This used to fire-and-forget: create_task() per sentence, no await.
+                # Every sentence then synthesised concurrently and pushed into
+                # audio_output *whenever it finished*, so a short sentence overtook a
+                # long one and the reply was spoken out of order. Worse, each task
+                # pushes several chunks with awaits between them, so chunks from
+                # different sentences could interleave mid-sentence.
+                #
+                # Awaiting here makes order correct by construction. Nothing is lost:
+                # Kokoro inference is already serialised behind a max_workers=1
+                # executor (kokoro_tts._kokoro_executor), so the concurrency bought a
+                # race condition and no throughput.
+                #
+                # Still a task, not a bare await, so handle_interrupt() can cancel it
+                # mid-synthesis on barge-in exactly as before.
                 task = asyncio.create_task(_synthesize_and_queue(tts_buffer, current_lang))
                 self._synthesis_tasks.add(task)
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    # Two different things raise CancelledError here and they need
+                    # opposite handling:
+                    #   * barge-in cancelled THIS SENTENCE (handle_interrupt calls
+                    #     task.cancel()) — abandon the turn and keep serving the next
+                    #     one. task.cancelled() is True.
+                    #   * tts_worker ITSELF is being cancelled (shutdown) while parked
+                    #     on this await — must propagate, or the worker never stops.
+                    # Swallowing the second would spin the loop on a dying pipeline.
+                    if task.cancelled():
+                        logger.info("tts_worker: synthesis cancelled by interrupt")
+                        continue
+                    raise
 
             except asyncio.CancelledError:
                 logger.info("tts_worker cancelled")

@@ -39,6 +39,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import re
 import wave
 from concurrent.futures import ThreadPoolExecutor
 from typing import AsyncIterator, Optional
@@ -286,28 +287,85 @@ class KokoroTTS:
 # Sentence splitter
 # ---------------------------------------------------------------------------
 
+# A "." is only a sentence end when it is not part of something else. Splitting on a
+# bare dot cut "3.5 meters" into "3" / "5 meters" and "Dr. Smith" into "Dr" / "Smith",
+# and the engine spells out the resulting non-words.
+#
+# Guarded here rather than by pre-stripping, because the text reaching the engine can
+# still legitimately contain decimals, versions and abbreviations — those are words the
+# user should hear, not junk to remove.
+_ABBREVIATIONS = (
+    "mr", "mrs", "ms", "dr", "prof", "st", "jr", "sr",
+    "vs", "etc", "eg", "ie", "approx", "no", "fig", "inc", "ltd", "co",
+    "a.m", "p.m", "u.s", "e.g", "i.e",
+)
+
+_SENTENCE_SPLIT_EN = re.compile(
+    r"""
+    (?<=[.!?…])      # a terminator
+    (?<!\d\.)        # ...but not the dot of a decimal / version / numbered item
+    \s+              # followed by whitespace (so "index.html" never splits)
+    (?=[^\s])        # and something follows
+    """,
+    re.VERBOSE,
+)
+
+# Minimum length below which a fragment is merged into a neighbour rather than spoken
+# alone: Kokoro degrades on very short utterances.
+_MIN_FRAGMENT_EN = 3
+
+
+def _ends_with_abbreviation(chunk: str) -> bool:
+    """True if `chunk` ends in a known abbreviation, i.e. its "." is not a sentence end."""
+    tail = chunk.rstrip()
+    if not tail.endswith("."):
+        return False
+    last_word = re.split(r"[\s(]", tail[:-1])[-1].lower()
+    return last_word in _ABBREVIATIONS
+
+
 def _split_sentences(text: str) -> list[str]:
     """
     Split text into sentence-sized chunks for incremental synthesis.
 
-    Uses a simple punctuation-based heuristic that works well for the
-    short, clean sentences produced by the LLM.  A proper sentence
-    tokeniser (e.g. NLTK punkt) is not worth the extra dependency here.
+    Uses a punctuation heuristic tuned for the short, clean sentences an LLM produces.
+    A full tokeniser (NLTK punkt) is not worth the dependency, but a bare split on "."
+    is not good enough either — see _SENTENCE_SPLIT_EN and _ABBREVIATIONS.
+
+    Short fragments are MERGED into a neighbour, never discarded. The previous version
+    dropped anything under 3 characters, which silently swallowed short replies ("OK.")
+    — the model wrote them, so they must be spoken.
 
     Args:
         text: Input text (may contain multiple sentences)
 
     Returns:
-        List of sentence strings (non-empty, stripped)
+        List of sentence strings (non-empty, stripped). Every character of the input's
+        visible text survives into exactly one chunk.
     """
-    import re
+    parts = [p.strip() for p in _SENTENCE_SPLIT_EN.split(text.strip()) if p.strip()]
+    if not parts:
+        return []
 
-    # Split on sentence-ending punctuation followed by whitespace or end-of-string.
-    # Keep the punctuation attached to the preceding sentence.
-    parts = re.split(r'(?<=[.!?…])\s+', text.strip())
+    # Re-join fragments that were cut after an abbreviation ("Dr." | "Smith is in.").
+    joined: list[str] = []
+    for part in parts:
+        if joined and _ends_with_abbreviation(joined[-1]):
+            joined[-1] = f"{joined[-1]} {part}"
+        else:
+            joined.append(part)
 
-    # Filter out empty strings and very short fragments (< 3 chars)
-    return [p.strip() for p in parts if p.strip() and len(p.strip()) >= 3]
+    # Merge fragments too short to synthesise well, rather than dropping them.
+    merged: list[str] = []
+    for chunk in joined:
+        if merged and len(chunk) < _MIN_FRAGMENT_EN:
+            merged[-1] = f"{merged[-1]} {chunk}"
+        elif merged and len(merged[-1]) < _MIN_FRAGMENT_EN:
+            merged[-1] = f"{merged[-1]} {chunk}"
+        else:
+            merged.append(chunk)
+
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -329,8 +387,6 @@ def _split_sentences_ja(text: str) -> list[str]:
     Returns:
         List of sentence strings (non-empty, stripped)
     """
-    import re
-
     # Split on Japanese/ASCII sentence-ending punctuation
     parts = re.split(r'(?<=[。！？…!?])\s*', text.strip())
 
